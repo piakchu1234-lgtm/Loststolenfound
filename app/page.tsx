@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Map, { Marker, type ViewState } from "react-map-gl/mapbox";
+import { useEffect, useRef, useState } from "react";
+import Map, { Marker, type MapRef, type ViewState } from "react-map-gl/mapbox";
 import {
   Plus,
   PackageSearch,
@@ -25,6 +25,9 @@ import {
   X,
   LogOut,
   Mail,
+  LocateFixed,
+  Loader2,
+  Share,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
@@ -211,7 +214,11 @@ const INITIAL_VIEW = {
 };
 
 export default function Home() {
+  const mapRef = useRef<MapRef | null>(null);
+  const hasInitiallyFlownRef = useRef(false);
   const [viewState, setViewState] = useState<Partial<ViewState>>(INITIAL_VIEW);
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>(1);
   const [category, setCategory] = useState<CategoryId | null>(null);
@@ -253,7 +260,8 @@ export default function Home() {
       console.error("[fetchPins]", error);
       return;
     }
-    setPins((data ?? []) as MapPin[]);
+    const rows = (data ?? []) as MapPin[];
+    setPins(rows);
   }
 
   useEffect(() => {
@@ -522,6 +530,117 @@ export default function Home() {
     );
   }
 
+  function handleLocate() {
+    if (gpsLoading) return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
+      return;
+    }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        const map = mapRef.current;
+        if (map) {
+          map.flyTo({
+            center: [longitude, latitude],
+            zoom: Math.max(map.getZoom(), 15),
+            duration: 1500,
+            essential: true,
+          });
+        } else {
+          setViewState((prev) => ({ ...prev, latitude, longitude, zoom: 15 }));
+        }
+        setGpsLoading(false);
+      },
+      (error) => {
+        setGpsLoading(false);
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Location access was denied. Please enable location permissions in your browser settings."
+            : error.code === error.POSITION_UNAVAILABLE
+              ? "Your location is currently unavailable. Please try again."
+              : error.code === error.TIMEOUT
+                ? "Locating you took too long. Please try again."
+                : "Unable to retrieve your location.";
+        alert(message);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
+  }
+
+  async function handleShare(pinId: string) {
+    if (typeof window === "undefined") return;
+    const url = `${window.location.origin}/?pin=${pinId}`;
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title: "Incident Report", url });
+        return;
+      } catch (err) {
+        if ((err as DOMException)?.name === "AbortError") return;
+        console.error("[handleShare:navigator.share]", err);
+      }
+    }
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        alert("Link copied to clipboard!");
+      } else {
+        window.prompt("Copy this link:", url);
+      }
+    } catch (err) {
+      console.error("[handleShare:clipboard]", err);
+      window.prompt("Copy this link:", url);
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (selectedPin) {
+      window.history.replaceState(null, "", `?pin=${selectedPin.id}`);
+    } else {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, [selectedPin?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (hasInitiallyFlownRef.current) return;
+    if (!isMapLoaded || pins.length === 0) return;
+
+    const urlPinId = new URLSearchParams(window.location.search).get("pin");
+    if (!urlPinId) {
+      hasInitiallyFlownRef.current = true;
+      return;
+    }
+
+    const match = pins.find((p) => p.id === urlPinId);
+    if (!match) {
+      window.history.replaceState(null, "", window.location.pathname);
+      hasInitiallyFlownRef.current = true;
+      return;
+    }
+
+    setSelectedPin(match);
+    const map = mapRef.current;
+    if (map) {
+      map.flyTo({
+        center: [match.longitude, match.latitude],
+        zoom: Math.max(map.getZoom(), 15),
+        duration: 1500,
+        essential: true,
+      });
+    } else {
+      setViewState((prev) => ({
+        ...prev,
+        latitude: match.latitude,
+        longitude: match.longitude,
+        zoom: 15,
+      }));
+    }
+    hasInitiallyFlownRef.current = true;
+  }, [isMapLoaded, pins]);
+
   return (
     <div className="fixed inset-0 h-screen w-screen">
       <div className="fixed top-6 right-4 z-[50]">
@@ -615,8 +734,10 @@ export default function Home() {
       {viewMode === "map" && (
         <>
           <Map
+        ref={mapRef}
         {...viewState}
         onMove={(e) => setViewState(e.viewState)}
+        onLoad={() => setIsMapLoaded(true)}
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
         style={{ width: "100%", height: "100%" }}
         mapStyle="mapbox://styles/mapbox/streets-v12"
@@ -693,16 +814,24 @@ export default function Home() {
                   <SheetDescription className="text-sm text-zinc-600">
                     Reported {formattedDate}
                   </SheetDescription>
+                  <Button
+                    type="button"
+                    onClick={() => handleShare(selectedPin.id)}
+                    aria-label="Share this report"
+                    className="mt-2 h-10 w-fit gap-2 rounded-full bg-zinc-900 px-4 text-sm font-semibold text-white shadow-md hover:bg-zinc-800 focus-visible:ring-4 focus-visible:ring-zinc-300"
+                  >
+                    <Share className="h-4 w-4" aria-hidden />
+                    Share
+                  </Button>
                 </SheetHeader>
 
                 <div className="flex-1 overflow-y-auto px-4 py-5">
                   {selectedPin.image_url && (
                     <div className="mb-5 overflow-hidden rounded-xl ring-1 ring-zinc-200">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
+                      <PinImage
                         src={selectedPin.image_url}
                         alt={`Photo evidence for ${selectedPin.title}`}
-                        className="max-h-64 w-full object-cover"
+                        className="h-64 w-full"
                       />
                     </div>
                   )}
@@ -817,6 +946,24 @@ export default function Home() {
         </div>
       )}
 
+      {/* Floating GPS / Locate-Me button */}
+      <button
+        type="button"
+        onClick={handleLocate}
+        disabled={gpsLoading}
+        aria-label={
+          gpsLoading ? "Locating your position" : "Center map on my location"
+        }
+        aria-busy={gpsLoading}
+        className="absolute bottom-8 right-4 z-[40] flex h-12 w-12 items-center justify-center rounded-full bg-white p-3 shadow-lg ring-1 ring-zinc-200 transition hover:bg-zinc-50 active:scale-95 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300 disabled:opacity-70"
+      >
+        {gpsLoading ? (
+          <Loader2 className="h-5 w-5 animate-spin text-zinc-700" aria-hidden />
+        ) : (
+          <LocateFixed className="h-5 w-5 text-zinc-700" aria-hidden />
+        )}
+      </button>
+
       {/* Floating Trigger Button */}
       <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center sm:bottom-10">
         <Button
@@ -885,14 +1032,11 @@ export default function Home() {
                       <li key={p.id}>
                         <Card className="bg-white">
                           {p.image_url && (
-                            <>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={p.image_url}
-                                alt={`Photo evidence for ${p.title}`}
-                                className="h-48 w-full object-cover"
-                              />
-                            </>
+                            <PinImage
+                              src={p.image_url}
+                              alt={`Photo evidence for ${p.title}`}
+                              className="h-48 w-full"
+                            />
                           )}
                           <CardHeader>
                             <div className="flex items-start gap-3">
@@ -924,7 +1068,7 @@ export default function Home() {
                                 : "No additional description was provided."}
                             </p>
                           </CardContent>
-                          <CardFooter>
+                          <CardFooter className="gap-2">
                             <Button
                               type="button"
                               variant="outline"
@@ -933,6 +1077,17 @@ export default function Home() {
                               aria-label="Upvote or verify (coming soon)"
                             >
                               👍 Upvote / Verify
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleShare(p.id)}
+                              aria-label={`Share report: ${p.title}`}
+                              className="gap-1.5"
+                            >
+                              <Share className="h-4 w-4" aria-hidden />
+                              Share
                             </Button>
                           </CardFooter>
                         </Card>
@@ -1281,6 +1436,37 @@ function StepIndicator({ step }: { step: Step }) {
           }`}
         />
       ))}
+    </div>
+  );
+}
+
+function PinImage({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+}) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+  return (
+    <div className={`relative ${className ?? ""}`}>
+      {!imageLoaded && (
+        <div
+          aria-hidden
+          className="absolute inset-0 animate-pulse bg-zinc-200"
+        />
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        onLoad={() => setImageLoaded(true)}
+        className={`h-full w-full object-cover transition-opacity duration-300 ${
+          imageLoaded ? "opacity-100" : "opacity-0"
+        }`}
+      />
     </div>
   );
 }
