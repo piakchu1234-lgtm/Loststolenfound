@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Map, { Marker, type MapRef, type ViewState } from "react-map-gl/mapbox";
 import type mapboxgl from "mapbox-gl";
 import { useTheme } from "next-themes";
+import imageCompression from "browser-image-compression";
 import {
   Plus,
   PackageSearch,
@@ -35,6 +36,9 @@ import {
   Pencil,
   Trash2,
   Search,
+  Maximize2,
+  Minimize2,
+  Crosshair,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
@@ -92,9 +96,30 @@ interface MapPin {
   longitude: number;
   image_url: string | null;
   user_id: string | null;
+  status: PinStatus | null;
   created_at: string;
   updated_at: string;
 }
+
+type PinStatus = "open" | "in_progress" | "resolved";
+
+const STATUS_META: Record<
+  PinStatus,
+  { label: string; classes: string }
+> = {
+  open: {
+    label: "Open",
+    classes: "bg-blue-100 text-blue-800 ring-blue-300",
+  },
+  in_progress: {
+    label: "In Progress",
+    classes: "bg-yellow-100 text-yellow-800 ring-yellow-300",
+  },
+  resolved: {
+    label: "Resolved",
+    classes: "bg-green-100 text-green-800 ring-green-300",
+  },
+};
 
 interface Comment {
   id: string;
@@ -237,6 +262,9 @@ export default function Home() {
     null,
   );
   const [submitting, setSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<
+    "idle" | "compressing" | "uploading" | "saving"
+  >("idle");
   const [pins, setPins] = useState<MapPin[]>([]);
   const [selectedPin, setSelectedPin] = useState<MapPin | null>(null);
   const [viewMode, setViewMode] = useState<"map" | "list">("map");
@@ -267,6 +295,9 @@ export default function Home() {
   const [addressLoading, setAddressLoading] = useState(false);
   const [addressInput, setAddressInput] = useState<string>("");
   const [forwardGeocoding, setForwardGeocoding] = useState(false);
+  const [isTargetingMode, setIsTargetingMode] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const center = {
     latitude: viewState.latitude ?? INITIAL_VIEW.latitude,
@@ -352,11 +383,39 @@ export default function Home() {
   }
 
   function handleMapClick(e: mapboxgl.MapLayerMouseEvent) {
+    if (isTargetingMode) {
+      const { lng, lat } = e.lngLat;
+      setPinned({ lat, lng });
+      fetchAddress(lat, lng);
+      setIsTargetingMode(false);
+      return;
+    }
     if (open && step === 3) {
       const { lng, lat } = e.lngLat;
       setPinned({ lat, lng });
       fetchAddress(lat, lng);
     }
+  }
+
+  async function updateStatus(newStatus: PinStatus) {
+    if (!selectedPin || updatingStatus) return;
+    setUpdatingStatus(true);
+    const { error } = await supabase
+      .from("MapPin")
+      .update({ status: newStatus })
+      .eq("id", selectedPin.id);
+    setUpdatingStatus(false);
+    if (error) {
+      console.error("[updateStatus]", error);
+      alert("Failed to update status. Please try again.");
+      return;
+    }
+    setSelectedPin({ ...selectedPin, status: newStatus });
+    setPins((prev) =>
+      prev.map((p) =>
+        p.id === selectedPin.id ? { ...p, status: newStatus } : p,
+      ),
+    );
   }
 
   async function fetchPins() {
@@ -671,18 +730,36 @@ export default function Home() {
 
     let image_url: string | null = null;
     if (imageFile) {
-      const ext = imageFile.name.split(".").pop()?.toLowerCase() || "jpg";
+      let fileToUpload: File = imageFile;
+      try {
+        setSubmitStatus("compressing");
+        fileToUpload = await imageCompression(imageFile, {
+          maxSizeMB: 0.5,
+          maxWidthOrHeight: 1920,
+          useWebWorker: true,
+        });
+      } catch (compressionError) {
+        console.error(
+          "[ReportSubmit] image compression failed, falling back to original",
+          compressionError,
+        );
+        fileToUpload = imageFile;
+      }
+
+      setSubmitStatus("uploading");
+      const ext = fileToUpload.name.split(".").pop()?.toLowerCase() || "jpg";
       const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("incident-photos")
-        .upload(path, imageFile, {
-          contentType: imageFile.type,
+        .upload(path, fileToUpload, {
+          contentType: fileToUpload.type || imageFile.type,
           cacheControl: "3600",
           upsert: false,
         });
       if (uploadError) {
         console.error("[ReportSubmit] image upload failed", uploadError);
         setSubmitting(false);
+        setSubmitStatus("idle");
         alert("Image upload failed. Please try again or submit without a photo.");
         return;
       }
@@ -692,6 +769,7 @@ export default function Home() {
       image_url = publicUrlData.publicUrl;
     }
 
+    setSubmitStatus("saving");
     const { error } = await supabase.from("MapPin").insert({
       title: title.trim(),
       description: description.trim() || null,
@@ -702,6 +780,7 @@ export default function Home() {
       user_id: session.user.id,
     });
     setSubmitting(false);
+    setSubmitStatus("idle");
     if (error) {
       console.error("[ReportSubmit]", error);
       return;
@@ -870,6 +949,23 @@ export default function Home() {
 
   return (
     <div className="fixed inset-0 h-screen w-screen">
+      {isTargetingMode && (
+        <div className="fixed top-6 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-3 rounded-full bg-zinc-900 px-5 py-3 text-white shadow-2xl ring-4 ring-rose-500/40">
+          <Crosshair className="h-5 w-5 animate-pulse text-rose-400" aria-hidden />
+          <span className="text-sm font-semibold">
+            Click anywhere on the map to set location
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setIsTargetingMode(false)}
+            className="h-7 rounded-full bg-white px-3 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
       <div className="fixed top-6 right-4 z-[50] flex gap-2">
         {mounted && (
           <Button
@@ -1023,10 +1119,17 @@ export default function Home() {
       <Sheet
         open={!!selectedPin}
         onOpenChange={(open) => {
-          if (!open) setSelectedPin(null);
+          if (!open) {
+            setSelectedPin(null);
+            setIsExpanded(false);
+          }
         }}
       >
-        <SheetContent className="w-full gap-0 sm:max-w-md">
+        <SheetContent
+          className={`w-full gap-0 transition-all duration-300 ease-out ${
+            isExpanded ? "sm:max-w-4xl" : "sm:max-w-md"
+          }`}
+        >
           {selectedPin && (() => {
             const v = PIN_VISUALS[selectedPin.category];
             const HeaderIcon = v.Icon;
@@ -1039,18 +1142,45 @@ export default function Home() {
               dateStyle: "long",
               timeStyle: "short",
             });
+            const currentStatus: PinStatus = selectedPin.status ?? "open";
+            const statusMeta = STATUS_META[currentStatus];
             return (
               <>
                 <SheetHeader className="border-b">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-md ring-4 ${v.bg} ${v.text} ${v.ring}`}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-md ring-4 ${v.bg} ${v.text} ${v.ring}`}
+                      >
+                        <HeaderIcon className="h-6 w-6" aria-hidden />
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+                          {categoryLabel}
+                        </span>
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusMeta.classes}`}
+                        >
+                          {statusMeta.label}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsExpanded((prev) => !prev)}
+                      aria-label={
+                        isExpanded ? "Collapse view" : "Expand view"
+                      }
+                      className="h-9 w-9 shrink-0 p-0"
                     >
-                      <HeaderIcon className="h-6 w-6" aria-hidden />
-                    </span>
-                    <span className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-                      {categoryLabel}
-                    </span>
+                      {isExpanded ? (
+                        <Minimize2 className="h-4 w-4" aria-hidden />
+                      ) : (
+                        <Maximize2 className="h-4 w-4" aria-hidden />
+                      )}
+                    </Button>
                   </div>
                   <SheetTitle className="text-2xl font-bold leading-tight tracking-tight text-zinc-900">
                     {selectedPin.title}
@@ -1067,6 +1197,35 @@ export default function Home() {
                     <Share className="h-4 w-4" aria-hidden />
                     Share
                   </Button>
+
+                  {canModifyPin(selectedPin) && (
+                    <div className="mt-3">
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                        Update Status
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {(Object.keys(STATUS_META) as PinStatus[]).map((s) => {
+                          const meta = STATUS_META[s];
+                          const isActive = currentStatus === s;
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => updateStatus(s)}
+                              disabled={updatingStatus || isActive}
+                              className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors disabled:cursor-not-allowed ${
+                                isActive
+                                  ? `${meta.classes} ring-2 ring-offset-1`
+                                  : "bg-white text-zinc-700 ring-zinc-300 hover:bg-zinc-100"
+                              }`}
+                            >
+                              {meta.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </SheetHeader>
 
                 <div className="flex-1 overflow-y-auto px-4 py-5">
@@ -1428,7 +1587,7 @@ export default function Home() {
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Dialog open={open && !isTargetingMode} onOpenChange={handleOpenChange}>
         <DialogContent
           className="max-w-lg gap-0 p-0 sm:max-w-xl"
           showCloseButton
@@ -1638,12 +1797,15 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3">
-                  <span className="text-lg" aria-hidden>👆</span>
-                  <p className="text-sm text-zinc-700">
-                    <span className="font-semibold">Tip:</span> Click anywhere on the map to drop a pin
-                  </p>
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 w-full gap-2 text-base"
+                  onClick={() => setIsTargetingMode(true)}
+                >
+                  <Crosshair className="h-5 w-5" aria-hidden />
+                  📍 Choose location on map
+                </Button>
 
                 {category && SENSITIVE_CATEGORIES.has(category) && (
                   <div className="flex items-start gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3">
@@ -1689,8 +1851,20 @@ export default function Home() {
                 disabled={submitting}
                 className="h-12 bg-rose-600 px-6 text-base font-semibold text-white hover:bg-rose-700 active:bg-rose-800 disabled:opacity-70"
               >
-                <Send className="mr-2 h-5 w-5" aria-hidden />
-                {submitting ? "Submitting..." : "Submit Report"}
+                {submitting ? (
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden />
+                ) : (
+                  <Send className="mr-2 h-5 w-5" aria-hidden />
+                )}
+                {submitStatus === "compressing"
+                  ? "Compressing photo..."
+                  : submitStatus === "uploading"
+                    ? "Uploading..."
+                    : submitStatus === "saving"
+                      ? "Saving report..."
+                      : submitting
+                        ? "Submitting..."
+                        : "Submit Report"}
               </Button>
             )}
           </DialogFooter>
