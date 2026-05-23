@@ -6,7 +6,9 @@
       "Bash(npm install *)",
       "Bash(NODE_OPTIONS=--use-system-ca npx *)",
       "Bash(npm run *)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(node *)",
+      "Bash(taskkill *)"
     ]
   }
 }

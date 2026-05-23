@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Map, { Marker, type MapRef, type ViewState } from "react-map-gl/mapbox";
+import type mapboxgl from "mapbox-gl";
+import { useTheme } from "next-themes";
 import {
   Plus,
   PackageSearch,
@@ -28,6 +30,11 @@ import {
   LocateFixed,
   Loader2,
   Share,
+  Moon,
+  Sun,
+  Pencil,
+  Trash2,
+  Search,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
@@ -93,6 +100,7 @@ interface Comment {
   id: string;
   pin_id: string;
   user_id: string;
+  user_email: string | null;
   content: string;
   created_at: string;
 }
@@ -238,21 +246,118 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authSending, setAuthSending] = useState(false);
   const [authSent, setAuthSent] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [comments, setComments] = useState<Comment[]>([]);
+  const [comments, setComments] = useState<Comment[] | null>([]);
   const [upvoteCount, setUpvoteCount] = useState(0);
   const [userUpvoteId, setUserUpvoteId] = useState<string | null>(null);
   const [upvoting, setUpvoting] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const [loadingSocial, setLoadingSocial] = useState(false);
+  const [editingPin, setEditingPin] = useState<MapPin | null>(null);
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  const [readableAddress, setReadableAddress] = useState<string>(
+    "Fetching location details...",
+  );
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [addressInput, setAddressInput] = useState<string>("");
+  const [forwardGeocoding, setForwardGeocoding] = useState(false);
 
   const center = {
     latitude: viewState.latitude ?? INITIAL_VIEW.latitude,
     longitude: viewState.longitude ?? INITIAL_VIEW.longitude,
   };
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const mapStyle =
+    theme === "dark"
+      ? "mapbox://styles/mapbox/dark-v11"
+      : "mapbox://styles/mapbox/streets-v12";
+
+  const isAdmin = session?.user?.email === "yapshin1001@gmail.com";
+  const canModifyPin = (pin: MapPin) =>
+    session?.user?.id === pin.user_id || isAdmin;
+
+  async function fetchAddress(lat: number, lng: number) {
+    setAddressLoading(true);
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`,
+      );
+      if (!response.ok) {
+        throw new Error("Geocoding request failed");
+      }
+      const data = await response.json();
+      if (data.features && data.features.length > 0) {
+        const placeName = data.features[0].place_name;
+        setReadableAddress(placeName);
+        setAddressInput(placeName);
+      } else {
+        setReadableAddress("Address not found. Drop pin to refine.");
+        setAddressInput("");
+      }
+    } catch (error) {
+      console.error("[fetchAddress]", error);
+      setReadableAddress("Address not found. Drop pin to refine.");
+      setAddressInput("");
+    } finally {
+      setAddressLoading(false);
+    }
+  }
+
+  async function handleForwardGeocode() {
+    const query = addressInput.trim();
+    if (!query || forwardGeocoding) return;
+
+    setForwardGeocoding(true);
+    try {
+      const response = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`,
+      );
+      if (!response.ok) {
+        throw new Error("Forward geocoding request failed");
+      }
+      const data = await response.json();
+      if (data.features && data.features.length > 0) {
+        const [lng, lat] = data.features[0].center;
+        setPinned({ lat, lng });
+        setReadableAddress(data.features[0].place_name);
+        setAddressInput(data.features[0].place_name);
+
+        if (mapRef.current) {
+          mapRef.current.flyTo({
+            center: [lng, lat],
+            zoom: Math.max(mapRef.current.getZoom(), 15),
+            duration: 1500,
+            essential: true,
+          });
+        }
+      } else {
+        alert("No results found for that address. Please try a different search.");
+      }
+    } catch (error) {
+      console.error("[handleForwardGeocode]", error);
+      alert("Failed to search for address. Please try again.");
+    } finally {
+      setForwardGeocoding(false);
+    }
+  }
+
+  function handleMapClick(e: mapboxgl.MapLayerMouseEvent) {
+    if (open && step === 3) {
+      const { lng, lat } = e.lngLat;
+      setPinned({ lat, lng });
+      fetchAddress(lat, lng);
+    }
+  }
 
   async function fetchPins() {
     const { data, error } = await supabase.from("MapPin").select("*");
@@ -287,21 +392,45 @@ export default function Home() {
     };
   }, []);
 
+  async function fetchComments(pinId: string) {
+    setComments(null);
+    const { data, error } = await supabase
+      .from("comments")
+      .select("*")
+      .eq("pin_id", pinId)
+      .order("created_at", { ascending: true });
+    if (error) {
+      console.error("[fetchComments]", error);
+      setComments([]);
+      return;
+    }
+    setComments((data ?? []) as Comment[]);
+  }
+
+  async function deleteComment(commentId: string) {
+    if (!session) return;
+    const confirmed = window.confirm("Delete this comment?");
+    if (!confirmed) return;
+    const { error } = await supabase
+      .from("comments")
+      .delete()
+      .eq("id", commentId);
+    if (error) {
+      console.error("[deleteComment]", error);
+      alert("Failed to delete comment.");
+      return;
+    }
+    setComments((prev) =>
+      prev ? prev.filter((c) => c.id !== commentId) : prev,
+    );
+  }
+
   async function fetchSocial(pinId: string) {
     setLoadingSocial(true);
-    const [commentsRes, upvotesRes] = await Promise.all([
-      supabase
-        .from("Comments")
-        .select("*")
-        .eq("pin_id", pinId)
-        .order("created_at", { ascending: true }),
-      supabase.from("Upvotes").select("id,user_id").eq("pin_id", pinId),
-    ]);
-    if (commentsRes.error) {
-      console.error("[fetchSocial:comments]", commentsRes.error);
-    } else {
-      setComments((commentsRes.data ?? []) as Comment[]);
-    }
+    const upvotesRes = await supabase
+      .from("Upvotes")
+      .select("id,user_id")
+      .eq("pin_id", pinId);
     if (upvotesRes.error) {
       console.error("[fetchSocial:upvotes]", upvotesRes.error);
       setUpvoteCount(0);
@@ -329,8 +458,16 @@ export default function Home() {
       return;
     }
     fetchSocial(selectedPin.id);
+    fetchComments(selectedPin.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPin?.id, session?.user.id]);
+
+  useEffect(() => {
+    if (pinned && step === 3) {
+      fetchAddress(pinned.lat, pinned.lng);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinned?.lat, pinned?.lng, step]);
 
   function requireAuth(): boolean {
     if (session) return true;
@@ -338,20 +475,42 @@ export default function Home() {
     return false;
   }
 
-  async function handleSendMagicLink(e: React.FormEvent) {
+  async function handleAuthSubmit(e: React.FormEvent) {
     e.preventDefault();
     const email = authEmail.trim();
+    const password = authPassword.trim();
+
     if (!email || authSending) return;
-    setAuthSending(true);
-    setAuthError(null);
-    const { error } = await supabase.auth.signInWithOtp({ email });
-    setAuthSending(false);
-    if (error) {
-      console.error("[signInWithOtp]", error);
-      setAuthError(error.message);
+
+    if (!password || password.length < 6) {
+      setAuthError("Password must be at least 6 characters");
       return;
     }
-    setAuthSent(true);
+
+    setAuthSending(true);
+    setAuthError(null);
+
+    if (authMode === "signup") {
+      const { error } = await supabase.auth.signUp({ email, password });
+      setAuthSending(false);
+      if (error) {
+        console.error("[signUp]", error);
+        setAuthError(error.message);
+        return;
+      }
+      setAuthSent(true);
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      setAuthSending(false);
+      if (error) {
+        console.error("[signInWithPassword]", error);
+        setAuthError(error.message);
+        return;
+      }
+    }
   }
 
   async function handleSignOut() {
@@ -398,9 +557,10 @@ export default function Home() {
     if (!content) return;
     if (!requireAuth() || !session) return;
     setPostingComment(true);
-    const { error } = await supabase.from("Comments").insert({
+    const { error } = await supabase.from("comments").insert({
       pin_id: selectedPin.id,
       user_id: session.user.id,
+      user_email: session.user.email ?? null,
       content,
     });
     setPostingComment(false);
@@ -409,7 +569,7 @@ export default function Home() {
       return;
     }
     setNewComment("");
-    await fetchSocial(selectedPin.id);
+    await fetchComments(selectedPin.id);
   }
 
   function resetForm() {
@@ -419,6 +579,10 @@ export default function Home() {
     setDescription("");
     setVoiceInputSimulated(false);
     setPinned(null);
+    setEditingPin(null);
+    setReadableAddress("Fetching location details...");
+    setAddressInput("");
+    setAddressLoading(false);
     clearImage();
   }
 
@@ -449,7 +613,9 @@ export default function Home() {
     setOpen(next);
     if (next) {
       resetForm();
-      setPinned({ lat: center.latitude, lng: center.longitude });
+      if (!editingPin) {
+        setPinned({ lat: center.latitude, lng: center.longitude });
+      }
     }
   }
 
@@ -467,6 +633,36 @@ export default function Home() {
     if (!category || !pinned || submitting) return;
     if (!requireAuth() || !session) return;
     setSubmitting(true);
+
+    if (editingPin) {
+      const { error } = await supabase
+        .from("MapPin")
+        .update({
+          title: title.trim(),
+          description: description.trim() || null,
+          category,
+        })
+        .eq("id", editingPin.id);
+      setSubmitting(false);
+      if (error) {
+        console.error("[handleSubmit:update]", error);
+        alert("Failed to update the report. Please try again.");
+        return;
+      }
+      setOpen(false);
+      resetForm();
+      await fetchPins();
+      if (selectedPin?.id === editingPin.id) {
+        const updated = await supabase
+          .from("MapPin")
+          .select("*")
+          .eq("id", editingPin.id)
+          .single();
+        if (updated.data) setSelectedPin(updated.data as MapPin);
+      }
+      return;
+    }
+
     const { latitude, longitude } = fuzzCoordinates(
       pinned.lat,
       pinned.lng,
@@ -594,6 +790,37 @@ export default function Home() {
     }
   }
 
+  function handleEdit(pin: MapPin) {
+    setEditingPin(pin);
+    setCategory(pin.category);
+    setTitle(pin.title);
+    setDescription(pin.description || "");
+    setPinned({ lat: pin.latitude, lng: pin.longitude });
+    setStep(2);
+    setSelectedPin(null);
+    setOpen(true);
+  }
+
+  async function handleDelete(pinId: string) {
+    if (!session) return;
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this report? This action cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    const { error } = await supabase.from("MapPin").delete().eq("id", pinId);
+    if (error) {
+      console.error("[handleDelete]", error);
+      alert("Failed to delete the report. Please try again.");
+      return;
+    }
+
+    setPins((prev) => prev.filter((p) => p.id !== pinId));
+    if (selectedPin?.id === pinId) {
+      setSelectedPin(null);
+    }
+  }
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (selectedPin) {
@@ -643,14 +870,30 @@ export default function Home() {
 
   return (
     <div className="fixed inset-0 h-screen w-screen">
-      <div className="fixed top-6 right-4 z-[50]">
+      <div className="fixed top-6 right-4 z-[50] flex gap-2">
+        {mounted && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="h-9 w-9 rounded-full bg-white dark:bg-zinc-800 p-0 shadow-md"
+            aria-label="Toggle theme"
+          >
+            {theme === "dark" ? (
+              <Sun className="h-4 w-4" aria-hidden />
+            ) : (
+              <Moon className="h-4 w-4" aria-hidden />
+            )}
+          </Button>
+        )}
         {session ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={handleSignOut}
-            className="h-9 gap-2 rounded-full bg-white px-3 text-xs font-semibold shadow-md"
+            className="h-9 gap-2 rounded-full bg-white dark:bg-zinc-800 px-3 text-xs font-semibold shadow-md"
           >
             <LogOut className="h-4 w-4" aria-hidden />
             <span className="hidden sm:inline">Sign out</span>
@@ -660,7 +903,7 @@ export default function Home() {
             type="button"
             size="sm"
             onClick={() => setShowAuthModal(true)}
-            className="h-9 gap-2 rounded-full bg-zinc-900 px-3 text-xs font-semibold text-white shadow-md hover:bg-zinc-800"
+            className="h-9 gap-2 rounded-full bg-zinc-900 dark:bg-white dark:text-zinc-900 px-3 text-xs font-semibold text-white shadow-md hover:bg-zinc-800 dark:hover:bg-zinc-100"
           >
             <Mail className="h-4 w-4" aria-hidden />
             Sign in
@@ -738,9 +981,10 @@ export default function Home() {
         {...viewState}
         onMove={(e) => setViewState(e.viewState)}
         onLoad={() => setIsMapLoaded(true)}
+        onClick={handleMapClick}
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
         style={{ width: "100%", height: "100%" }}
-        mapStyle="mapbox://styles/mapbox/streets-v12"
+        mapStyle={mapStyle}
       >
         {visiblePins.map((p) => {
           const v = PIN_VISUALS[p.category];
@@ -871,59 +1115,119 @@ export default function Home() {
                     </Button>
                   </div>
 
+                  {canModifyPin(selectedPin) && (
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEdit(selectedPin)}
+                        className="flex-1 gap-2"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden />
+                        Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(selectedPin.id)}
+                        className="flex-1 gap-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        Delete
+                      </Button>
+                    </div>
+                  )}
+
                   <div className="mt-4">
                     <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Comments ({comments.length})
+                      Comments {comments && `(${comments.length})`}
                     </h4>
-                    {loadingSocial && comments.length === 0 ? (
-                      <p className="text-sm text-zinc-500">Loading…</p>
+                    {comments === null ? (
+                      <ul className="flex flex-col gap-2" aria-label="Loading comments">
+                        {[0, 1, 2].map((i) => (
+                          <li
+                            key={i}
+                            className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200"
+                          >
+                            <div className="h-3 w-1/3 animate-pulse rounded bg-zinc-200" />
+                            <div className="mt-2 h-4 w-full animate-pulse rounded bg-zinc-200" />
+                            <div className="mt-1 h-4 w-3/4 animate-pulse rounded bg-zinc-200" />
+                          </li>
+                        ))}
+                      </ul>
                     ) : comments.length === 0 ? (
                       <p className="text-sm text-zinc-500">
-                        No comments yet. Be the first to add context.
+                        No comments yet. Be the first to help!
                       </p>
                     ) : (
                       <ul className="flex flex-col gap-2">
-                        {comments.map((c) => (
-                          <li
-                            key={c.id}
-                            className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200"
-                          >
-                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
-                              {c.content}
-                            </p>
-                            <p className="mt-1 text-xs text-zinc-500">
-                              <time dateTime={c.created_at}>
-                                {new Date(c.created_at).toLocaleString(
-                                  undefined,
-                                  { dateStyle: "medium", timeStyle: "short" },
+                        {comments.map((c) => {
+                          const canDeleteComment =
+                            session?.user?.id === c.user_id || isAdmin;
+                          const emailLabel = c.user_email
+                            ? c.user_email.split("@")[0]
+                            : "Anonymous";
+                          return (
+                            <li
+                              key={c.id}
+                              className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-xs font-semibold text-zinc-900">
+                                    {emailLabel}
+                                  </p>
+                                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
+                                    {c.content}
+                                  </p>
+                                  <p className="mt-1 text-xs text-zinc-500">
+                                    <time dateTime={c.created_at}>
+                                      {formatRelativeTime(c.created_at)}
+                                    </time>
+                                  </p>
+                                </div>
+                                {canDeleteComment && (
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteComment(c.id)}
+                                    aria-label="Delete comment"
+                                    className="shrink-0 rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                                  >
+                                    <Trash2 className="h-4 w-4" aria-hidden />
+                                  </button>
                                 )}
-                              </time>
-                            </p>
-                          </li>
-                        ))}
+                              </div>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </div>
 
                   <form onSubmit={submitComment} className="mt-4 flex gap-2">
-                    <Input
+                    <Textarea
                       value={newComment}
                       onChange={(e) => setNewComment(e.target.value)}
                       placeholder={
                         session
                           ? "Add a comment…"
-                          : "Sign in to add a comment…"
+                          : "Sign in to leave a comment."
                       }
                       aria-label="New comment"
-                      className="h-11 text-base"
-                      disabled={postingComment}
+                      className="min-h-[44px] flex-1 text-base"
+                      disabled={postingComment || !session}
+                      rows={2}
                     />
                     <Button
                       type="submit"
                       disabled={
-                        postingComment || newComment.trim().length === 0
+                        postingComment ||
+                        newComment.trim().length === 0 ||
+                        !session
                       }
-                      className="h-11 bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                      className="h-auto bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
                     >
                       <Send className="mr-1 h-4 w-4" aria-hidden />
                       {postingComment ? "Posting…" : "Post"}
@@ -1089,6 +1393,30 @@ export default function Home() {
                               <Share className="h-4 w-4" aria-hidden />
                               Share
                             </Button>
+                            {canModifyPin(p) && (
+                              <>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleEdit(p)}
+                                  className="gap-1.5"
+                                >
+                                  <Pencil className="h-4 w-4" aria-hidden />
+                                  Edit
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleDelete(p.id)}
+                                  className="gap-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                                >
+                                  <Trash2 className="h-4 w-4" aria-hidden />
+                                  Delete
+                                </Button>
+                              </>
+                            )}
                           </CardFooter>
                         </Card>
                       </li>
@@ -1263,43 +1591,60 @@ export default function Home() {
                     <span className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-600 text-white">
                       <MapPinIcon className="h-5 w-5" aria-hidden />
                     </span>
-                    <div>
-                      <p className="text-sm font-medium text-rose-900">Pinned at map centre</p>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-rose-900">Pin Location</p>
                       <p className="text-xs text-rose-700">
-                        Drag the map behind this dialog to fine-tune.
+                        Type an address or click the map to drop a pin
                       </p>
                     </div>
                   </div>
-                  <dl className="mt-4 grid grid-cols-2 gap-3 text-base">
-                    <div className="rounded-lg bg-white px-3 py-2">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                        Latitude
-                      </dt>
-                      <dd className="font-mono text-base text-zinc-900">
-                        {pinned.lat.toFixed(6)}
-                      </dd>
+                  <div className="mt-4">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-900">
+                      Address
+                    </p>
+                    <div className="flex gap-2">
+                      <Input
+                        value={addressInput}
+                        onChange={(e) => setAddressInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleForwardGeocode();
+                          }
+                        }}
+                        placeholder="Search for an address..."
+                        className="h-11 flex-1 text-sm"
+                        disabled={addressLoading || forwardGeocoding}
+                      />
+                      <Button
+                        type="button"
+                        onClick={handleForwardGeocode}
+                        disabled={addressLoading || forwardGeocoding || !addressInput.trim()}
+                        className="h-11 px-4"
+                      >
+                        {forwardGeocoding ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Search className="h-4 w-4" aria-hidden />
+                        )}
+                      </Button>
                     </div>
-                    <div className="rounded-lg bg-white px-3 py-2">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                        Longitude
-                      </dt>
-                      <dd className="font-mono text-base text-zinc-900">
-                        {pinned.lng.toFixed(6)}
-                      </dd>
-                    </div>
-                  </dl>
+                    {addressLoading && (
+                      <p className="mt-2 flex items-center gap-2 text-xs text-rose-700">
+                        <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                        Fetching location details...
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-12 w-full text-base"
-                  onClick={() =>
-                    setPinned({ lat: center.latitude, lng: center.longitude })
-                  }
-                >
-                  <MapPinIcon className="mr-2 h-5 w-5" aria-hidden />
-                  Recapture current map centre
-                </Button>
+
+                <div className="flex items-center gap-2 rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3">
+                  <span className="text-lg" aria-hidden>👆</span>
+                  <p className="text-sm text-zinc-700">
+                    <span className="font-semibold">Tip:</span> Click anywhere on the map to drop a pin
+                  </p>
+                </div>
+
                 {category && SENSITIVE_CATEGORIES.has(category) && (
                   <div className="flex items-start gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3">
                     <Eye className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700" aria-hidden />
@@ -1359,16 +1704,20 @@ export default function Home() {
           if (!next) {
             setAuthSent(false);
             setAuthError(null);
+            setAuthPassword("");
+            setAuthMode("login");
           }
         }}
       >
         <DialogContent className="max-w-md gap-0 p-0">
           <DialogHeader className="border-b px-6 py-5">
             <DialogTitle className="text-2xl font-bold tracking-tight">
-              Sign in
+              {authMode === "login" ? "Sign in" : "Create Account"}
             </DialogTitle>
             <DialogDescription className="text-base text-zinc-600">
-              We&apos;ll email you a one-time magic link — no password needed.
+              {authMode === "login"
+                ? "Sign in with your email and password."
+                : "Create your account to start reporting incidents."}
             </DialogDescription>
           </DialogHeader>
           {authSent ? (
@@ -1380,13 +1729,13 @@ export default function Home() {
                 Check your email!
               </p>
               <p className="mt-1 text-sm text-zinc-600">
-                We sent a magic link to{" "}
+                We sent a confirmation link to{" "}
                 <span className="font-medium text-zinc-900">{authEmail}</span>.
-                Open it on this device to sign in.
+                Open it on this device to verify your account.
               </p>
             </div>
           ) : (
-            <form onSubmit={handleSendMagicLink} className="space-y-4 px-6 py-6">
+            <form onSubmit={handleAuthSubmit} className="space-y-4 px-6 py-6">
               <div className="space-y-2">
                 <Label htmlFor="auth-email" className="text-base font-semibold">
                   Email
@@ -1403,6 +1752,22 @@ export default function Home() {
                   disabled={authSending}
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="auth-password" className="text-base font-semibold">
+                  Password
+                </Label>
+                <Input
+                  id="auth-password"
+                  type="password"
+                  required
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="At least 6 characters"
+                  className="h-12 text-base"
+                  disabled={authSending}
+                  minLength={6}
+                />
+              </div>
               {authError && (
                 <p role="alert" className="text-sm text-rose-600">
                   {authError}
@@ -1411,12 +1776,31 @@ export default function Home() {
               <Button
                 type="submit"
                 size="lg"
-                disabled={authSending || authEmail.trim().length === 0}
+                disabled={authSending || authEmail.trim().length === 0 || authPassword.trim().length === 0}
                 className="h-12 w-full bg-zinc-900 text-base font-semibold text-white hover:bg-zinc-800 disabled:opacity-70"
               >
-                <Mail className="mr-2 h-5 w-5" aria-hidden />
-                {authSending ? "Sending…" : "Send Magic Link"}
+                {authSending
+                  ? authMode === "login"
+                    ? "Signing in…"
+                    : "Creating account…"
+                  : authMode === "login"
+                    ? "Sign In"
+                    : "Create Account"}
               </Button>
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode(authMode === "login" ? "signup" : "login");
+                    setAuthError(null);
+                  }}
+                  className="text-sm text-zinc-600 hover:text-zinc-900 underline"
+                >
+                  {authMode === "login"
+                    ? "Need an account? Sign up"
+                    : "Already have an account? Sign in"}
+                </button>
+              </div>
             </form>
           )}
         </DialogContent>
@@ -1438,6 +1822,30 @@ function StepIndicator({ step }: { step: Step }) {
       ))}
     </div>
   );
+}
+
+function formatRelativeTime(iso: string): string {
+  const date = new Date(iso);
+  const now = Date.now();
+  const diffSeconds = Math.floor((now - date.getTime()) / 1000);
+  if (diffSeconds < 5) return "just now";
+  if (diffSeconds < 60) return `${diffSeconds} seconds ago`;
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60)
+    return `${diffMinutes} minute${diffMinutes === 1 ? "" : "s"} ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24)
+    return `${diffHours} hour${diffHours === 1 ? "" : "s"} ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks < 4)
+    return `${diffWeeks} week${diffWeeks === 1 ? "" : "s"} ago`;
+  return date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function PinImage({
