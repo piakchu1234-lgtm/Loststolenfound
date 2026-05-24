@@ -489,7 +489,7 @@ export default function Home() {
   async function fetchSocial(pinId: string) {
     setLoadingSocial(true);
     const upvotesRes = await supabase
-      .from("Upvotes")
+      .from("PinUpvote")
       .select("id,user_id")
       .eq("pin_id", pinId);
     if (upvotesRes.error) {
@@ -587,7 +587,7 @@ export default function Home() {
       setUserUpvoteId(null);
       setUpvoteCount((c) => Math.max(0, c - 1));
       const { error } = await supabase
-        .from("Upvotes")
+        .from("PinUpvote")
         .delete()
         .eq("id", prevId);
       if (error) {
@@ -597,7 +597,7 @@ export default function Home() {
       }
     } else {
       const { data, error } = await supabase
-        .from("Upvotes")
+        .from("PinUpvote")
         .insert({ pin_id: selectedPin.id, user_id: session.user.id })
         .select("id")
         .single();
@@ -1316,7 +1316,7 @@ export default function Home() {
                       disabled={upvoting || loadingSocial}
                       aria-pressed={!!userUpvoteId}
                       aria-label={
-                        userUpvoteId ? "Remove upvote" : "Upvote this report"
+                        userUpvoteId ? "Remove verification" : "Verify this report"
                       }
                       className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
                         userUpvoteId
@@ -1326,7 +1326,7 @@ export default function Home() {
                     >
                       <span aria-hidden>👍</span>
                       <span>
-                        {userUpvoteId ? "Verified" : "Upvote"} · {upvoteCount}
+                        {userUpvoteId ? "Verified" : "Verify"} · {upvoteCount}
                       </span>
                     </Button>
                   </div>

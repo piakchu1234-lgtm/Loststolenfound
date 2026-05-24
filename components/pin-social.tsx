@@ -42,8 +42,8 @@ export function PinSocial({ pinId }: { pinId: string }) {
   const [comments, setComments] = useState<Comment[] | null>(null);
   const [newComment, setNewComment] = useState("");
   const [posting, setPosting] = useState(false);
-  const [upvoteCount, setUpvoteCount] = useState(0);
-  const [userUpvoteId, setUserUpvoteId] = useState<string | null>(null);
+  const [upvotes, setUpvotes] = useState<number>(0);
+  const [hasUpvoted, setHasUpvoted] = useState<boolean>(false);
   const [upvoting, setUpvoting] = useState(false);
 
   useEffect(() => {
@@ -84,23 +84,35 @@ export function PinSocial({ pinId }: { pinId: string }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      const { data, error } = await supabase
-        .from("Upvotes")
-        .select("id,user_id")
+      const countRes = await supabase
+        .from("PinUpvote")
+        .select("id", { count: "exact", head: true })
         .eq("pin_id", pinId);
       if (!active) return;
-      if (error) {
-        console.error("[PinSocial:fetchUpvotes]", error);
-        setUpvoteCount(0);
-        setUserUpvoteId(null);
+      if (countRes.error) {
+        console.error("[PinSocial:fetchUpvoteCount]", countRes.error);
+        setUpvotes(0);
+      } else {
+        setUpvotes(countRes.count ?? 0);
+      }
+
+      if (!session) {
+        setHasUpvoted(false);
         return;
       }
-      const rows = (data ?? []) as { id: string; user_id: string }[];
-      setUpvoteCount(rows.length);
-      const mine = session
-        ? rows.find((r) => r.user_id === session.user.id)
-        : undefined;
-      setUserUpvoteId(mine?.id ?? null);
+      const mineRes = await supabase
+        .from("PinUpvote")
+        .select("id")
+        .eq("pin_id", pinId)
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      if (!active) return;
+      if (mineRes.error) {
+        console.error("[PinSocial:fetchUserUpvote]", mineRes.error);
+        setHasUpvoted(false);
+      } else {
+        setHasUpvoted(!!mineRes.data);
+      }
     })();
     return () => {
       active = false;
@@ -111,32 +123,34 @@ export function PinSocial({ pinId }: { pinId: string }) {
 
   async function toggleUpvote() {
     if (!session) {
-      alert("Please sign in to upvote.");
+      alert("Please sign in to verify incidents.");
       return;
     }
     if (upvoting) return;
     setUpvoting(true);
-    if (userUpvoteId) {
-      const prev = userUpvoteId;
-      setUserUpvoteId(null);
-      setUpvoteCount((c) => Math.max(0, c - 1));
-      const { error } = await supabase.from("Upvotes").delete().eq("id", prev);
+    if (hasUpvoted) {
+      setHasUpvoted(false);
+      setUpvotes((c) => Math.max(0, c - 1));
+      const { error } = await supabase
+        .from("PinUpvote")
+        .delete()
+        .eq("pin_id", pinId)
+        .eq("user_id", session.user.id);
       if (error) {
         console.error("[PinSocial:upvote:delete]", error);
-        setUserUpvoteId(prev);
-        setUpvoteCount((c) => c + 1);
+        setHasUpvoted(true);
+        setUpvotes((c) => c + 1);
       }
     } else {
-      const { data, error } = await supabase
-        .from("Upvotes")
-        .insert({ pin_id: pinId, user_id: session.user.id })
-        .select("id")
-        .single();
-      if (error || !data) {
+      setHasUpvoted(true);
+      setUpvotes((c) => c + 1);
+      const { error } = await supabase
+        .from("PinUpvote")
+        .insert({ pin_id: pinId, user_id: session.user.id });
+      if (error) {
         console.error("[PinSocial:upvote:insert]", error);
-      } else {
-        setUserUpvoteId(data.id as string);
-        setUpvoteCount((c) => c + 1);
+        setHasUpvoted(false);
+        setUpvotes((c) => Math.max(0, c - 1));
       }
     }
     setUpvoting(false);
@@ -194,16 +208,16 @@ export function PinSocial({ pinId }: { pinId: string }) {
           type="button"
           onClick={toggleUpvote}
           disabled={upvoting}
-          aria-pressed={!!userUpvoteId}
+          aria-pressed={hasUpvoted}
           className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
-            userUpvoteId
+            hasUpvoted
               ? "bg-emerald-600 text-white hover:bg-emerald-700"
               : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
           }`}
         >
           <span aria-hidden>👍</span>
           <span>
-            {userUpvoteId ? "Verified" : "Upvote"} · {upvoteCount}
+            {hasUpvoted ? "Verified" : "Verify"} · {upvotes}
           </span>
         </Button>
       </div>
