@@ -850,7 +850,7 @@ export default function Home() {
 
   async function handleShare(pinId: string) {
     if (typeof window === "undefined") return;
-    const url = `${window.location.origin}/?pin=${pinId}`;
+    const url = `${window.location.origin}/p/${pinId}`;
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({ title: "Incident Report", url });

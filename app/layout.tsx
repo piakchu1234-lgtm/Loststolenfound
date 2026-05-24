@@ -16,6 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://loststolenfound.vercel.app"),
   title: "LostStolenFound | Malvern East Community Map",
   description:
     "The real-time interactive map for tracking lost pets, found items, and neighborhood alerts in Malvern East.",
