@@ -42,6 +42,9 @@ import {
   Crosshair,
   PackageCheck,
   Heart,
+  User,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
@@ -317,7 +320,7 @@ export default function Home() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[] | null>([]);
   const [upvoteCount, setUpvoteCount] = useState(0);
-  const [userUpvoteId, setUserUpvoteId] = useState<string | null>(null);
+  const [userVote, setUserVote] = useState<1 | -1 | null>(null);
   const [upvoting, setUpvoting] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [postingComment, setPostingComment] = useState(false);
@@ -528,22 +531,24 @@ export default function Home() {
     setLoadingSocial(true);
     const upvotesRes = await supabase
       .from("PinUpvote")
-      .select("id,user_id")
+      .select("user_id,vote_type")
       .eq("pin_id", pinId);
     if (upvotesRes.error) {
       console.error("[fetchSocial:upvotes]", upvotesRes.error);
       setUpvoteCount(0);
-      setUserUpvoteId(null);
+      setUserVote(null);
     } else {
       const rows = (upvotesRes.data ?? []) as {
-        id: string;
         user_id: string;
+        vote_type: number;
       }[];
-      setUpvoteCount(rows.length);
+      const net = rows.reduce((s, r) => s + (r.vote_type ?? 0), 0);
+      setUpvoteCount(net);
       const mine = session
         ? rows.find((r) => r.user_id === session.user.id)
         : undefined;
-      setUserUpvoteId(mine?.id ?? null);
+      const v = mine?.vote_type;
+      setUserVote(v === 1 ? 1 : v === -1 ? -1 : null);
     }
     setLoadingSocial(false);
   }
@@ -552,7 +557,7 @@ export default function Home() {
     if (!selectedPin) {
       setComments([]);
       setUpvoteCount(0);
-      setUserUpvoteId(null);
+      setUserVote(null);
       setNewComment("");
       return;
     }
@@ -616,35 +621,39 @@ export default function Home() {
     await supabase.auth.signOut();
   }
 
-  async function toggleUpvote() {
+  async function castVote(direction: 1 | -1) {
     if (!selectedPin || upvoting) return;
     if (!requireAuth() || !session) return;
+    const previous = userVote;
+    const removing = previous === direction;
+    const nextVote: 1 | -1 | null = removing ? null : direction;
+    const delta = (nextVote ?? 0) - (previous ?? 0);
+
     setUpvoting(true);
-    if (userUpvoteId) {
-      const prevId = userUpvoteId;
-      setUserUpvoteId(null);
-      setUpvoteCount((c) => Math.max(0, c - 1));
-      const { error } = await supabase
-        .from("PinUpvote")
-        .delete()
-        .eq("id", prevId);
-      if (error) {
-        console.error("[toggleUpvote:delete]", error);
-        setUserUpvoteId(prevId);
-        setUpvoteCount((c) => c + 1);
-      }
-    } else {
-      const { data, error } = await supabase
-        .from("PinUpvote")
-        .insert({ pin_id: selectedPin.id, user_id: session.user.id })
-        .select("id")
-        .single();
-      if (error || !data) {
-        console.error("[toggleUpvote:insert]", error);
-      } else {
-        setUserUpvoteId(data.id as string);
-        setUpvoteCount((c) => c + 1);
-      }
+    setUserVote(nextVote);
+    setUpvoteCount((c) => c + delta);
+
+    const { error } = removing
+      ? await supabase
+          .from("PinUpvote")
+          .delete()
+          .eq("pin_id", selectedPin.id)
+          .eq("user_id", session.user.id)
+      : await supabase
+          .from("PinUpvote")
+          .upsert(
+            {
+              pin_id: selectedPin.id,
+              user_id: session.user.id,
+              vote_type: direction,
+            },
+            { onConflict: "pin_id,user_id" },
+          );
+
+    if (error) {
+      console.error("[castVote]", error);
+      setUserVote(previous);
+      setUpvoteCount((c) => c - delta);
     }
     setUpvoting(false);
   }
@@ -1044,16 +1053,26 @@ export default function Home() {
           </Button>
         )}
         {session ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={handleSignOut}
-            className="h-9 gap-2 rounded-full bg-white dark:bg-zinc-800 px-3 text-xs font-semibold shadow-md"
-          >
-            <LogOut className="h-4 w-4" aria-hidden />
-            <span className="hidden sm:inline">Sign out</span>
-          </Button>
+          <>
+            <Link
+              href="/profile"
+              aria-label="Open your profile dashboard"
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-3 text-xs font-semibold text-zinc-800 shadow-md ring-1 ring-zinc-200 transition-colors hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-100 dark:ring-zinc-700 dark:hover:bg-zinc-700"
+            >
+              <User className="h-4 w-4" aria-hidden />
+              <span className="hidden sm:inline">Profile</span>
+            </Link>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleSignOut}
+              className="h-9 gap-2 rounded-full bg-white dark:bg-zinc-800 px-3 text-xs font-semibold shadow-md"
+            >
+              <LogOut className="h-4 w-4" aria-hidden />
+              <span className="hidden sm:inline">Sign out</span>
+            </Button>
+          </>
         ) : (
           <Button
             type="button"
@@ -1362,29 +1381,64 @@ export default function Home() {
                 </div>
 
                 <div className="border-t bg-zinc-50 px-4 py-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-                      Community Verification
-                    </h3>
-                    <Button
-                      type="button"
-                      onClick={toggleUpvote}
-                      disabled={upvoting || loadingSocial}
-                      aria-pressed={!!userUpvoteId}
-                      aria-label={
-                        userUpvoteId ? "Remove verification" : "Verify this report"
-                      }
-                      className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
-                        userUpvoteId
-                          ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                          : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
-                      }`}
-                    >
-                      <span aria-hidden>👍</span>
-                      <span>
-                        {userUpvoteId ? "Verified" : "Verify"} · {upvoteCount}
-                      </span>
-                    </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                        Community Verification
+                      </h3>
+                      <p
+                        className={`mt-0.5 text-2xl font-bold leading-none ${
+                          upvoteCount > 0
+                            ? "text-emerald-600"
+                            : upvoteCount < 0
+                              ? "text-rose-600"
+                              : "text-zinc-700"
+                        }`}
+                        aria-label={`Net trust score: ${upvoteCount}`}
+                      >
+                        {upvoteCount > 0 ? `+${upvoteCount}` : upvoteCount}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => castVote(1)}
+                        disabled={upvoting || loadingSocial}
+                        aria-pressed={userVote === 1}
+                        aria-label={
+                          userVote === 1
+                            ? "Remove your verification"
+                            : "Verify this report"
+                        }
+                        className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                          userVote === 1
+                            ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                            : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
+                        }`}
+                      >
+                        <ThumbsUp className="h-4 w-4" aria-hidden />
+                        <span>{userVote === 1 ? "Verified" : "Verify"}</span>
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={() => castVote(-1)}
+                        disabled={upvoting || loadingSocial}
+                        aria-pressed={userVote === -1}
+                        aria-label={
+                          userVote === -1
+                            ? "Remove your flag"
+                            : "Flag this report"
+                        }
+                        className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                          userVote === -1
+                            ? "bg-rose-600 text-white hover:bg-rose-700"
+                            : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
+                        }`}
+                      >
+                        <ThumbsDown className="h-4 w-4" aria-hidden />
+                        <span>{userVote === -1 ? "Flagged" : "Flag"}</span>
+                      </Button>
+                    </div>
                   </div>
 
                   {canModifyPin(selectedPin) && (

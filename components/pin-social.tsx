@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { Send, Trash2 } from "lucide-react";
+import { Send, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -37,14 +37,16 @@ function formatRelativeTime(iso: string): string {
   });
 }
 
+type VoteValue = 1 | -1;
+
 export function PinSocial({ pinId }: { pinId: string }) {
   const [session, setSession] = useState<Session | null>(null);
   const [comments, setComments] = useState<Comment[] | null>(null);
   const [newComment, setNewComment] = useState("");
   const [posting, setPosting] = useState(false);
-  const [upvotes, setUpvotes] = useState<number>(0);
-  const [hasUpvoted, setHasUpvoted] = useState<boolean>(false);
-  const [upvoting, setUpvoting] = useState(false);
+  const [netScore, setNetScore] = useState<number>(0);
+  const [userVote, setUserVote] = useState<VoteValue | null>(null);
+  const [voting, setVoting] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -84,34 +86,39 @@ export function PinSocial({ pinId }: { pinId: string }) {
   useEffect(() => {
     let active = true;
     (async () => {
-      const countRes = await supabase
+      const allRes = await supabase
         .from("PinUpvote")
-        .select("id", { count: "exact", head: true })
+        .select("vote_type")
         .eq("pin_id", pinId);
       if (!active) return;
-      if (countRes.error) {
-        console.error("[PinSocial:fetchUpvoteCount]", countRes.error);
-        setUpvotes(0);
+      if (allRes.error) {
+        console.error("[PinSocial:fetchVotes]", allRes.error);
+        setNetScore(0);
       } else {
-        setUpvotes(countRes.count ?? 0);
+        const rows = (allRes.data ?? []) as { vote_type: number }[];
+        const sum = rows.reduce((s, r) => s + (r.vote_type ?? 0), 0);
+        setNetScore(sum);
       }
 
       if (!session) {
-        setHasUpvoted(false);
+        setUserVote(null);
         return;
       }
       const mineRes = await supabase
         .from("PinUpvote")
-        .select("id")
+        .select("vote_type")
         .eq("pin_id", pinId)
         .eq("user_id", session.user.id)
         .maybeSingle();
       if (!active) return;
       if (mineRes.error) {
-        console.error("[PinSocial:fetchUserUpvote]", mineRes.error);
-        setHasUpvoted(false);
+        console.error("[PinSocial:fetchUserVote]", mineRes.error);
+        setUserVote(null);
+      } else if (!mineRes.data) {
+        setUserVote(null);
       } else {
-        setHasUpvoted(!!mineRes.data);
+        const v = (mineRes.data as { vote_type: number }).vote_type;
+        setUserVote(v === 1 ? 1 : v === -1 ? -1 : null);
       }
     })();
     return () => {
@@ -121,39 +128,44 @@ export function PinSocial({ pinId }: { pinId: string }) {
 
   const isAdmin = session?.user?.email === ADMIN_EMAIL;
 
-  async function toggleUpvote() {
+  async function castVote(direction: VoteValue) {
     if (!session) {
       alert("Please sign in to verify incidents.");
       return;
     }
-    if (upvoting) return;
-    setUpvoting(true);
-    if (hasUpvoted) {
-      setHasUpvoted(false);
-      setUpvotes((c) => Math.max(0, c - 1));
-      const { error } = await supabase
-        .from("PinUpvote")
-        .delete()
-        .eq("pin_id", pinId)
-        .eq("user_id", session.user.id);
-      if (error) {
-        console.error("[PinSocial:upvote:delete]", error);
-        setHasUpvoted(true);
-        setUpvotes((c) => c + 1);
-      }
-    } else {
-      setHasUpvoted(true);
-      setUpvotes((c) => c + 1);
-      const { error } = await supabase
-        .from("PinUpvote")
-        .insert({ pin_id: pinId, user_id: session.user.id });
-      if (error) {
-        console.error("[PinSocial:upvote:insert]", error);
-        setHasUpvoted(false);
-        setUpvotes((c) => Math.max(0, c - 1));
-      }
+    if (voting) return;
+    const previous = userVote;
+    const removing = previous === direction;
+    const nextVote: VoteValue | null = removing ? null : direction;
+    const delta = (nextVote ?? 0) - (previous ?? 0);
+
+    setVoting(true);
+    setUserVote(nextVote);
+    setNetScore((s) => s + delta);
+
+    const { error } = removing
+      ? await supabase
+          .from("PinUpvote")
+          .delete()
+          .eq("pin_id", pinId)
+          .eq("user_id", session.user.id)
+      : await supabase
+          .from("PinUpvote")
+          .upsert(
+            {
+              pin_id: pinId,
+              user_id: session.user.id,
+              vote_type: direction,
+            },
+            { onConflict: "pin_id,user_id" },
+          );
+
+    if (error) {
+      console.error("[PinSocial:castVote]", error);
+      setUserVote(previous);
+      setNetScore((s) => s - delta);
     }
-    setUpvoting(false);
+    setVoting(false);
   }
 
   async function submitComment(e: React.FormEvent) {
@@ -200,26 +212,60 @@ export function PinSocial({ pinId }: { pinId: string }) {
 
   return (
     <section className="rounded-2xl border bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-          Community Verification
-        </h2>
-        <Button
-          type="button"
-          onClick={toggleUpvote}
-          disabled={upvoting}
-          aria-pressed={hasUpvoted}
-          className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
-            hasUpvoted
-              ? "bg-emerald-600 text-white hover:bg-emerald-700"
-              : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
-          }`}
-        >
-          <span aria-hidden>👍</span>
-          <span>
-            {hasUpvoted ? "Verified" : "Verify"} · {upvotes}
-          </span>
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            Community Verification
+          </h2>
+          <p
+            className={`mt-0.5 text-2xl font-bold leading-none ${
+              netScore > 0
+                ? "text-emerald-600"
+                : netScore < 0
+                  ? "text-rose-600"
+                  : "text-zinc-700 dark:text-zinc-200"
+            }`}
+            aria-label={`Net trust score: ${netScore}`}
+          >
+            {netScore > 0 ? `+${netScore}` : netScore}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            onClick={() => castVote(1)}
+            disabled={voting}
+            aria-pressed={userVote === 1}
+            aria-label={
+              userVote === 1 ? "Remove your verification" : "Verify this report"
+            }
+            className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
+              userVote === 1
+                ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
+            }`}
+          >
+            <ThumbsUp className="h-4 w-4" aria-hidden />
+            <span>{userVote === 1 ? "Verified" : "Verify"}</span>
+          </Button>
+          <Button
+            type="button"
+            onClick={() => castVote(-1)}
+            disabled={voting}
+            aria-pressed={userVote === -1}
+            aria-label={
+              userVote === -1 ? "Remove your flag" : "Flag this report"
+            }
+            className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
+              userVote === -1
+                ? "bg-rose-600 text-white hover:bg-rose-700"
+                : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
+            }`}
+          >
+            <ThumbsDown className="h-4 w-4" aria-hidden />
+            <span>{userVote === -1 ? "Flagged" : "Flag"}</span>
+          </Button>
+        </div>
       </div>
 
       <div className="mt-5">
