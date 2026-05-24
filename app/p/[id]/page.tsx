@@ -8,7 +8,9 @@ import { PinSocial } from "@/components/pin-social";
 
 type CategoryId =
   | "lost_property"
+  | "found_property"
   | "missing_pet"
+  | "found_pet"
   | "stolen_vehicle"
   | "break_in"
   | "suspicious_activity";
@@ -31,7 +33,9 @@ interface MapPin {
 
 const CATEGORY_LABELS: Record<CategoryId, string> = {
   lost_property: "Lost Property",
+  found_property: "Found Property",
   missing_pet: "Missing Pet",
+  found_pet: "Found Pet",
   stolen_vehicle: "Stolen Vehicle",
   break_in: "Break-In",
   suspicious_activity: "Suspicious Activity",
@@ -51,7 +55,9 @@ const STATUS_META: Record<PinStatus, { label: string; classes: string }> = {
 
 const CATEGORY_ACCENT: Record<CategoryId, string> = {
   lost_property: "from-amber-500/15 to-amber-500/0",
+  found_property: "from-teal-500/15 to-teal-500/0",
   missing_pet: "from-emerald-500/15 to-emerald-500/0",
+  found_pet: "from-pink-500/15 to-pink-500/0",
   stolen_vehicle: "from-sky-500/15 to-sky-500/0",
   break_in: "from-rose-500/15 to-rose-500/0",
   suspicious_activity: "from-violet-500/15 to-violet-500/0",

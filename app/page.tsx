@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import Map, { Marker, type MapRef, type ViewState } from "react-map-gl/mapbox";
 import type mapboxgl from "mapbox-gl";
 import { useTheme } from "next-themes";
@@ -39,11 +40,14 @@ import {
   Maximize2,
   Minimize2,
   Crosshair,
+  PackageCheck,
+  Heart,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/lib/supabase";
+import { findPotentialMatches, type MatchPin } from "@/lib/matching";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -74,7 +78,9 @@ import {
 
 type CategoryId =
   | "lost_property"
+  | "found_property"
   | "missing_pet"
+  | "found_pet"
   | "stolen_vehicle"
   | "break_in"
   | "suspicious_activity";
@@ -140,12 +146,28 @@ const CATEGORIES: Category[] = [
       "bg-amber-100 hover:bg-amber-200 active:bg-amber-300 text-amber-900 border-amber-300 data-[selected=true]:ring-amber-500",
   },
   {
+    id: "found_property",
+    label: "Found Property",
+    description: "Picked something up nearby",
+    Icon: PackageCheck,
+    color:
+      "bg-teal-100 hover:bg-teal-200 active:bg-teal-300 text-teal-900 border-teal-300 data-[selected=true]:ring-teal-500",
+  },
+  {
     id: "missing_pet",
     label: "Missing Pet",
     description: "Dog, cat or other animal",
     Icon: PawPrint,
     color:
       "bg-emerald-100 hover:bg-emerald-200 active:bg-emerald-300 text-emerald-900 border-emerald-300 data-[selected=true]:ring-emerald-500",
+  },
+  {
+    id: "found_pet",
+    label: "Found Pet",
+    description: "Spotted a wandering animal",
+    Icon: Heart,
+    color:
+      "bg-pink-100 hover:bg-pink-200 active:bg-pink-300 text-pink-900 border-pink-300 data-[selected=true]:ring-pink-500",
   },
   {
     id: "stolen_vehicle",
@@ -200,11 +222,23 @@ const PIN_VISUALS: Record<
     text: "text-white",
     ring: "ring-amber-200",
   },
+  found_property: {
+    Icon: PackageCheck,
+    bg: "bg-teal-500",
+    text: "text-white",
+    ring: "ring-teal-200",
+  },
   missing_pet: {
     Icon: Dog,
     bg: "bg-emerald-500",
     text: "text-white",
     ring: "ring-emerald-200",
+  },
+  found_pet: {
+    Icon: Heart,
+    bg: "bg-pink-500",
+    text: "text-white",
+    ring: "ring-pink-200",
   },
   suspicious_activity: {
     Icon: AlertTriangle,
@@ -300,6 +334,10 @@ export default function Home() {
   const [isTargetingMode, setIsTargetingMode] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [potentialMatches, setPotentialMatches] = useState<MatchPin[]>([]);
+  const [postSubmitView, setPostSubmitView] = useState<"form" | "matches">(
+    "form",
+  );
 
   const center = {
     latitude: viewState.latitude ?? INITIAL_VIEW.latitude,
@@ -674,9 +712,14 @@ export default function Home() {
     setOpen(next);
     if (next) {
       resetForm();
+      setPotentialMatches([]);
+      setPostSubmitView("form");
       if (!editingPin) {
         setPinned({ lat: center.latitude, lng: center.longitude });
       }
+    } else {
+      setPotentialMatches([]);
+      setPostSubmitView("form");
     }
   }
 
@@ -772,24 +815,37 @@ export default function Home() {
     }
 
     setSubmitStatus("saving");
-    const { error } = await supabase.from("MapPin").insert({
-      title: title.trim(),
-      description: description.trim() || null,
-      category,
-      latitude,
-      longitude,
-      image_url,
-      user_id: session.user.id,
-    });
+    const { data: insertedRow, error } = await supabase
+      .from("MapPin")
+      .insert({
+        title: title.trim(),
+        description: description.trim() || null,
+        category,
+        latitude,
+        longitude,
+        image_url,
+        user_id: session.user.id,
+      })
+      .select("id,category")
+      .single();
     setSubmitting(false);
     setSubmitStatus("idle");
-    if (error) {
+    if (error || !insertedRow) {
       console.error("[ReportSubmit]", error);
+      return;
+    }
+    await fetchPins();
+    const matches = await findPotentialMatches({
+      id: insertedRow.id as string,
+      category,
+    });
+    if (matches.length > 0) {
+      setPotentialMatches(matches);
+      setPostSubmitView("matches");
       return;
     }
     setOpen(false);
     resetForm();
-    await fetchPins();
   }
 
   const canAdvance =
@@ -1649,7 +1705,93 @@ export default function Home() {
           className="max-w-lg gap-0 p-0 sm:max-w-xl"
           showCloseButton
         >
-          <DialogHeader className="border-b px-6 py-5">
+          {postSubmitView === "matches" ? (
+            <>
+              <DialogHeader className="border-b px-6 py-5">
+                <DialogTitle className="text-2xl font-bold tracking-tight">
+                  Report Submitted! We found potential matches…
+                </DialogTitle>
+                <DialogDescription className="text-base text-zinc-600">
+                  These nearby reports look like they could be related. Take a
+                  look — one of them might be exactly what you&rsquo;re looking
+                  for.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="px-6 py-5">
+                <ul
+                  className="flex flex-col gap-3"
+                  aria-label="Potential matches"
+                >
+                  {potentialMatches.map((m) => {
+                    const v = PIN_VISUALS[m.category as CategoryId];
+                    const Icon = v?.Icon ?? PackageSearch;
+                    return (
+                      <li
+                        key={m.id}
+                        className="flex items-center gap-3 rounded-xl border bg-white p-3 ring-1 ring-zinc-200"
+                      >
+                        {m.image_url ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={m.image_url}
+                            alt=""
+                            className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-zinc-200"
+                          />
+                        ) : (
+                          <span
+                            className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-lg ${v?.bg ?? "bg-zinc-200"} ${v?.text ?? "text-zinc-700"}`}
+                            aria-hidden
+                          >
+                            <Icon className="h-7 w-7" />
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-base font-semibold text-zinc-900">
+                            {m.title}
+                          </p>
+                          <p className="mt-0.5 text-xs text-zinc-500">
+                            <time dateTime={m.created_at}>
+                              {formatRelativeTime(m.created_at)}
+                            </time>
+                          </p>
+                        </div>
+                        <Link
+                          href={`/p/${m.id}`}
+                          onClick={() => {
+                            setOpen(false);
+                            resetForm();
+                            setPotentialMatches([]);
+                            setPostSubmitView("form");
+                          }}
+                          className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full bg-zinc-900 px-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-zinc-800"
+                        >
+                          View this Pin
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+              <DialogFooter className="gap-2 border-t bg-zinc-50 px-6 py-4 sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  onClick={() => {
+                    setOpen(false);
+                    resetForm();
+                    setPotentialMatches([]);
+                    setPostSubmitView("form");
+                  }}
+                  className="h-12 px-5 text-base"
+                >
+                  None of these match, take me to the map
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader className="border-b px-6 py-5">
             <div className="flex items-center justify-between gap-4">
               <DialogTitle className="text-2xl font-bold tracking-tight">
                 {step === 1 && "What happened?"}
@@ -1925,6 +2067,8 @@ export default function Home() {
               </Button>
             )}
           </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
