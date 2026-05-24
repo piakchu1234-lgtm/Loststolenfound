@@ -270,7 +270,9 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<"map" | "list">("map");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<CategoryId | "all">("all");
+  const [activeStatus, setActiveStatus] = useState<PinStatus | "all">("open");
   const [session, setSession] = useState<Session | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
@@ -795,15 +797,17 @@ export default function Home() {
     (step === 2 && title.trim().length > 0) ||
     step === 3;
 
-  const visiblePins = pins.filter(
-    (pin) => activeFilters.length === 0 || activeFilters.includes(pin.category),
-  );
-
-  function toggleFilter(id: CategoryId) {
-    setActiveFilters((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id],
-    );
-  }
+  const filteredPins = pins.filter((pin) => {
+    if (activeCategory !== "all" && pin.category !== activeCategory) return false;
+    const pinStatus: PinStatus = pin.status ?? "open";
+    if (activeStatus !== "all" && pinStatus !== activeStatus) return false;
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      const haystack = `${pin.title} ${pin.description ?? ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
 
   function handleLocate() {
     if (gpsLoading) return;
@@ -1043,27 +1047,80 @@ export default function Home() {
 
       <div
         role="group"
-        aria-label="Filter by category"
-        className="fixed top-20 left-0 right-0 z-[50] flex justify-center px-4"
+        aria-label="Filter incidents"
+        className="fixed top-20 left-0 right-0 z-[50] flex flex-col items-center gap-2 px-4"
       >
-        <div className="flex max-w-full gap-2 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="relative w-full max-w-md">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search incidents..."
+            aria-label="Search incidents"
+            className="h-10 rounded-full bg-white/95 pl-9 pr-3 text-sm shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700"
+          />
+        </div>
+        <div className="flex max-w-full gap-2 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <button
+            type="button"
+            aria-pressed={activeCategory === "all"}
+            onClick={() => setActiveCategory("all")}
+            className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+              activeCategory === "all"
+                ? "bg-zinc-900 text-white shadow-md dark:bg-white dark:text-zinc-900"
+                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
+            }`}
+          >
+            <span className="whitespace-nowrap">All</span>
+          </button>
           {CATEGORIES.map((c) => {
-            const isActive = activeFilters.includes(c.id);
+            const isActive = activeCategory === c.id;
             const v = PIN_VISUALS[c.id];
             return (
               <button
                 key={c.id}
                 type="button"
                 aria-pressed={isActive}
-                onClick={() => toggleFilter(c.id)}
+                onClick={() => setActiveCategory(isActive ? "all" : c.id)}
                 className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
                   isActive
                     ? `${v.bg} ${v.text} shadow-md ring-2 ring-offset-1 ring-zinc-900/10`
-                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
                 }`}
               >
                 <c.Icon className="h-4 w-4" aria-hidden />
                 <span className="whitespace-nowrap">{c.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div
+          role="group"
+          aria-label="Filter by status"
+          className="flex max-w-full gap-2 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {(["all", "open", "in_progress", "resolved"] as const).map((s) => {
+            const isActive = activeStatus === s;
+            const label = s === "all" ? "All Status" : STATUS_META[s].label;
+            return (
+              <button
+                key={s}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => setActiveStatus(s)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+                  isActive
+                    ? s === "all"
+                      ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-white dark:text-zinc-900 dark:ring-white"
+                      : `${STATUS_META[s].classes} ring-2 ring-offset-1`
+                    : "bg-white text-zinc-700 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-700 dark:text-zinc-200 dark:ring-zinc-600 dark:hover:bg-zinc-600"
+                }`}
+              >
+                {label}
               </button>
             );
           })}
@@ -1082,7 +1139,7 @@ export default function Home() {
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
       >
-        {visiblePins.map((p) => {
+        {filteredPins.map((p) => {
           const v = PIN_VISUALS[p.category];
           const Icon = v.Icon;
           return (
@@ -1457,7 +1514,7 @@ export default function Home() {
               </p>
             </header>
 
-            {visiblePins.length === 0 ? (
+            {filteredPins.length === 0 ? (
               <div className="rounded-xl border-2 border-dashed border-zinc-300 bg-white p-10 text-center">
                 <p className="text-base font-medium text-zinc-700">
                   {pins.length === 0
@@ -1472,7 +1529,7 @@ export default function Home() {
               </div>
             ) : (
               <ul className="flex flex-col gap-4" aria-label="Incident reports">
-                {[...visiblePins]
+                {[...filteredPins]
                   .sort(
                     (a, b) =>
                       new Date(b.created_at).getTime() -
