@@ -39,7 +39,13 @@ function formatRelativeTime(iso: string): string {
 
 type VoteValue = 1 | -1;
 
-export function PinSocial({ pinId }: { pinId: string }) {
+export function PinSocial({
+  pinId,
+  pinOwnerId,
+}: {
+  pinId: string;
+  pinOwnerId?: string | null;
+}) {
   const [session, setSession] = useState<Session | null>(null);
   const [comments, setComments] = useState<Comment[] | null>(null);
   const [newComment, setNewComment] = useState("");
@@ -164,6 +170,21 @@ export function PinSocial({ pinId }: { pinId: string }) {
       console.error("[PinSocial:castVote]", error);
       setUserVote(previous);
       setNetScore((s) => s - delta);
+    } else if (
+      !removing &&
+      direction === 1 &&
+      pinOwnerId &&
+      pinOwnerId !== session.user.id
+    ) {
+      const notifRes = await supabase.from("Notification").insert({
+        user_id: pinOwnerId,
+        pin_id: pinId,
+        type: "verify",
+        message: "A neighbor verified your report.",
+      });
+      if (notifRes.error) {
+        console.error("[PinSocial:notify]", notifRes.error);
+      }
     }
     setVoting(false);
   }

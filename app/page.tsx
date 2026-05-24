@@ -52,6 +52,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { findPotentialMatches, type MatchPin } from "@/lib/matching";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/notification-bell";
 import {
   Dialog,
   DialogContent,
@@ -654,6 +655,21 @@ export default function Home() {
       console.error("[castVote]", error);
       setUserVote(previous);
       setUpvoteCount((c) => c - delta);
+    } else if (
+      !removing &&
+      direction === 1 &&
+      selectedPin.user_id &&
+      selectedPin.user_id !== session.user.id
+    ) {
+      const notifRes = await supabase.from("Notification").insert({
+        user_id: selectedPin.user_id,
+        pin_id: selectedPin.id,
+        type: "verify",
+        message: "A neighbor verified your report.",
+      });
+      if (notifRes.error) {
+        console.error("[castVote:notify]", notifRes.error);
+      }
     }
     setUpvoting(false);
   }
@@ -1054,6 +1070,7 @@ export default function Home() {
         )}
         {session ? (
           <>
+            <NotificationBell userId={session.user.id} />
             <Link
               href="/profile"
               aria-label="Open your profile dashboard"

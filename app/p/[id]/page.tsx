@@ -207,7 +207,7 @@ export default async function PinPage({
         </section>
 
         <div className="mt-6">
-          <PinSocial pinId={pin.id} />
+          <PinSocial pinId={pin.id} pinOwnerId={pin.user_id} />
         </div>
       </div>
     </main>
