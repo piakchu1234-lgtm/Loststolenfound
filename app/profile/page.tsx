@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
+import imageCompression from "browser-image-compression";
 import {
   ArrowLeft,
   ExternalLink,
@@ -10,10 +11,18 @@ import {
   MapPin as MapPinIcon,
   ShieldCheck,
   ClipboardList,
+  Settings as SettingsIcon,
+  Camera,
+  Save,
+  User as UserIcon,
+  TrendingUp,
 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardContent,
@@ -52,6 +61,13 @@ interface VerificationRow {
   pin: MapPin;
 }
 
+interface Profile {
+  id: string;
+  display_name: string | null;
+  contact_details: string | null;
+  avatar_url: string | null;
+}
+
 const CATEGORY_LABELS: Record<CategoryId, string> = {
   lost_property: "Lost Property",
   found_property: "Found Property",
@@ -76,7 +92,7 @@ const STATUS_META: Record<PinStatus, { label: string; classes: string }> = {
 
 const STATUSES: PinStatus[] = ["open", "in_progress", "resolved"];
 
-type TabId = "reports" | "verifications";
+type TabId = "reports" | "verifications" | "settings";
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -103,6 +119,17 @@ export default function ProfilePage() {
   const [statusUpdating, setStatusUpdating] = useState<Record<string, boolean>>(
     {},
   );
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [contactDetails, setContactDetails] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [trustScore, setTrustScore] = useState<number | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -190,6 +217,163 @@ export default function ProfilePage() {
       active = false;
     };
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setProfile(null);
+      setTrustScore(null);
+      return;
+    }
+    let active = true;
+    setProfileLoading(true);
+    (async () => {
+      const res = await supabase
+        .from("profiles")
+        .select("id,display_name,contact_details,avatar_url")
+        .eq("id", userId)
+        .maybeSingle();
+      if (!active) return;
+      if (res.error) {
+        console.error("[profile:fetchProfile]", res.error);
+        setProfile(null);
+      } else {
+        const row = (res.data ?? null) as Profile | null;
+        setProfile(row);
+        setDisplayName(row?.display_name ?? "");
+        setContactDetails(row?.contact_details ?? "");
+      }
+      setProfileLoading(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId || reports === null) {
+      return;
+    }
+    if (reports.length === 0) {
+      setTrustScore(0);
+      return;
+    }
+    let active = true;
+    (async () => {
+      const ids = reports.map((p) => p.id);
+      const res = await supabase
+        .from("PinUpvote")
+        .select("vote_type")
+        .in("pin_id", ids);
+      if (!active) return;
+      if (res.error) {
+        console.error("[profile:fetchTrustScore]", res.error);
+        setTrustScore(0);
+        return;
+      }
+      const rows = (res.data ?? []) as { vote_type: number }[];
+      const total = rows.reduce((s, r) => s + (r.vote_type ?? 0), 0);
+      setTrustScore(total);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [userId, reports]);
+
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!userId || savingProfile) return;
+    setSavingProfile(true);
+    setProfileError(null);
+    setProfileSaved(false);
+    const trimmedName = displayName.trim();
+    const trimmedContact = contactDetails.trim();
+    const { data, error } = await supabase
+      .from("profiles")
+      .upsert(
+        {
+          id: userId,
+          display_name: trimmedName || null,
+          contact_details: trimmedContact || null,
+          avatar_url: profile?.avatar_url ?? null,
+        },
+        { onConflict: "id" },
+      )
+      .select("id,display_name,contact_details,avatar_url")
+      .single();
+    setSavingProfile(false);
+    if (error || !data) {
+      console.error("[profile:saveProfile]", error);
+      setProfileError(error?.message ?? "Failed to save profile.");
+      return;
+    }
+    setProfile(data as Profile);
+    setProfileSaved(true);
+  }
+
+  async function handleAvatarChange(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !userId) return;
+    if (!file.type.startsWith("image/")) {
+      setAvatarError("Please select an image file.");
+      return;
+    }
+    setAvatarError(null);
+    setUploadingAvatar(true);
+
+    let toUpload: File = file;
+    try {
+      toUpload = await imageCompression(file, {
+        maxSizeMB: 0.3,
+        maxWidthOrHeight: 512,
+        useWebWorker: true,
+      });
+    } catch (err) {
+      console.error("[profile:avatarCompress]", err);
+    }
+
+    const ext = toUpload.name.split(".").pop()?.toLowerCase() || "jpg";
+    const path = `${userId}/avatar-${Date.now()}.${ext}`;
+    const upload = await supabase.storage
+      .from("avatars")
+      .upload(path, toUpload, {
+        contentType: toUpload.type || file.type,
+        cacheControl: "3600",
+        upsert: true,
+      });
+    if (upload.error) {
+      console.error("[profile:avatarUpload]", upload.error);
+      setUploadingAvatar(false);
+      setAvatarError("Avatar upload failed. Please try again.");
+      return;
+    }
+    const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+    const publicUrl = pub.publicUrl;
+
+    const { data: row, error: updateError } = await supabase
+      .from("profiles")
+      .upsert(
+        {
+          id: userId,
+          display_name: profile?.display_name ?? (displayName.trim() || null),
+          contact_details:
+            profile?.contact_details ?? (contactDetails.trim() || null),
+          avatar_url: publicUrl,
+        },
+        { onConflict: "id" },
+      )
+      .select("id,display_name,contact_details,avatar_url")
+      .single();
+    setUploadingAvatar(false);
+    if (updateError || !row) {
+      console.error("[profile:avatarPersist]", updateError);
+      setAvatarError("Saved file, but couldn't update profile. Try again.");
+      return;
+    }
+    setProfile(row as Profile);
+  }
 
   async function updateStatus(pinId: string, newStatus: PinStatus) {
     if (statusUpdating[pinId]) return;
@@ -285,10 +469,21 @@ export default function ProfilePage() {
                 {session.user.email}
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-3 sm:gap-4">
+            <div className="grid grid-cols-3 gap-3 sm:gap-4 md:grid-cols-4">
               <Stat label="Reports" value={stats.reportCount} />
               <Stat label="Still Open" value={stats.openCount} />
               <Stat label="Verified" value={stats.verificationCount} />
+              <Stat
+                label="Trust Score"
+                value={trustScore ?? 0}
+                highlight={
+                  trustScore !== null && trustScore > 0
+                    ? "emerald"
+                    : trustScore !== null && trustScore < 0
+                      ? "rose"
+                      : undefined
+                }
+              />
             </div>
           </div>
         </div>
@@ -313,6 +508,12 @@ export default function ProfilePage() {
             icon={<ShieldCheck className="h-4 w-4" aria-hidden />}
             label="My Verifications"
             count={verifications?.length}
+          />
+          <TabButton
+            active={activeTab === "settings"}
+            onClick={() => setActiveTab("settings")}
+            icon={<SettingsIcon className="h-4 w-4" aria-hidden />}
+            label="Settings"
           />
         </div>
 
@@ -504,15 +705,242 @@ export default function ProfilePage() {
             </ul>
           )}
         </section>
+
+        <section
+          role="tabpanel"
+          aria-label="Settings"
+          className={`mt-6 ${activeTab === "settings" ? "" : "hidden"}`}
+        >
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Avatar card */}
+            <div className="rounded-2xl border bg-white p-6 shadow-sm ring-1 ring-zinc-200 dark:border-zinc-800 dark:bg-zinc-900 dark:ring-zinc-800">
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+                Avatar
+              </h2>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Shown next to your reports in the community feed.
+              </p>
+              <div className="mt-5 flex flex-col items-center gap-4">
+                <div className="relative h-28 w-28">
+                  {profile?.avatar_url ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={profile.avatar_url}
+                      alt="Your avatar"
+                      className="h-28 w-28 rounded-full object-cover ring-4 ring-zinc-200 dark:ring-zinc-700"
+                    />
+                  ) : (
+                    <div className="flex h-28 w-28 items-center justify-center rounded-full bg-zinc-100 ring-4 ring-zinc-200 dark:bg-zinc-800 dark:ring-zinc-700">
+                      <UserIcon
+                        className="h-12 w-12 text-zinc-400"
+                        aria-hidden
+                      />
+                    </div>
+                  )}
+                  {uploadingAvatar && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
+                      <Loader2
+                        className="h-7 w-7 animate-spin text-white"
+                        aria-hidden
+                      />
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  id="avatar-input"
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleAvatarChange}
+                  disabled={uploadingAvatar}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={uploadingAvatar}
+                  className="h-10 gap-2 rounded-full px-4 text-sm font-semibold"
+                >
+                  {uploadingAvatar ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      Uploading…
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="h-4 w-4" aria-hidden />
+                      {profile?.avatar_url ? "Change avatar" : "Upload avatar"}
+                    </>
+                  )}
+                </Button>
+                {avatarError && (
+                  <p
+                    role="alert"
+                    className="text-xs text-rose-600 dark:text-rose-400"
+                  >
+                    {avatarError}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Profile form card */}
+            <form
+              onSubmit={saveProfile}
+              className="lg:col-span-2 rounded-2xl border bg-white p-6 shadow-sm ring-1 ring-zinc-200 dark:border-zinc-800 dark:bg-zinc-900 dark:ring-zinc-800"
+            >
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-50">
+                Public profile
+              </h2>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Your display name and contact details appear on your reports
+                and in the community feed.
+              </p>
+
+              {profileLoading ? (
+                <div className="mt-5 space-y-3">
+                  <div className="h-12 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
+                  <div className="h-32 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
+                </div>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="display-name"
+                      className="text-sm font-semibold"
+                    >
+                      Display name
+                    </Label>
+                    <Input
+                      id="display-name"
+                      value={displayName}
+                      onChange={(e) => {
+                        setDisplayName(e.target.value);
+                        setProfileSaved(false);
+                      }}
+                      placeholder="How neighbors see you (e.g. Shin)"
+                      className="h-11 text-base"
+                      maxLength={60}
+                      disabled={savingProfile}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="contact-details"
+                      className="text-sm font-semibold"
+                    >
+                      Contact details
+                    </Label>
+                    <Textarea
+                      id="contact-details"
+                      value={contactDetails}
+                      onChange={(e) => {
+                        setContactDetails(e.target.value);
+                        setProfileSaved(false);
+                      }}
+                      placeholder="Phone, email, or preferred way for someone returning a found item to reach you. Visible publicly on your reports."
+                      className="min-h-[120px] text-base"
+                      maxLength={500}
+                      disabled={savingProfile}
+                    />
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      {contactDetails.length}/500
+                    </p>
+                  </div>
+                  {profileError && (
+                    <p
+                      role="alert"
+                      className="text-sm text-rose-600 dark:text-rose-400"
+                    >
+                      {profileError}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between gap-3 pt-2">
+                    <p
+                      className="text-xs font-semibold text-emerald-600 dark:text-emerald-400"
+                      aria-live="polite"
+                    >
+                      {profileSaved ? "Saved." : ""}
+                    </p>
+                    <Button
+                      type="submit"
+                      disabled={savingProfile || profileLoading}
+                      className="h-11 gap-2 rounded-full bg-zinc-900 px-5 text-sm font-semibold text-white shadow-md hover:bg-zinc-800 disabled:opacity-70 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
+                    >
+                      {savingProfile ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      ) : (
+                        <Save className="h-4 w-4" aria-hidden />
+                      )}
+                      {savingProfile ? "Saving…" : "Save changes"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </form>
+
+            {/* Trust score insight */}
+            <div className="lg:col-span-3 rounded-2xl border bg-gradient-to-r from-emerald-50 via-white to-white p-6 ring-1 ring-emerald-200 dark:border-emerald-900 dark:from-emerald-950 dark:via-zinc-900 dark:to-zinc-900 dark:ring-emerald-900">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300">
+                  <TrendingUp className="h-5 w-5" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
+                    Community Trust Score
+                  </h2>
+                  <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                    The sum of every up- and down-vote your reports have
+                    received. Reliable reports build trust over time.
+                  </p>
+                </div>
+                <p
+                  className={`shrink-0 text-3xl font-bold tabular-nums ${
+                    (trustScore ?? 0) > 0
+                      ? "text-emerald-600"
+                      : (trustScore ?? 0) < 0
+                        ? "text-rose-600"
+                        : "text-zinc-700 dark:text-zinc-200"
+                  }`}
+                >
+                  {trustScore === null
+                    ? "—"
+                    : trustScore > 0
+                      ? `+${trustScore}`
+                      : trustScore}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number;
+  highlight?: "emerald" | "rose";
+}) {
+  const valueClass =
+    highlight === "emerald"
+      ? "text-emerald-300"
+      : highlight === "rose"
+        ? "text-rose-300"
+        : "";
+  const display =
+    highlight && value !== 0 ? (value > 0 ? `+${value}` : `${value}`) : value;
   return (
     <div className="rounded-xl bg-white/10 px-4 py-3 ring-1 ring-white/15 backdrop-blur">
-      <p className="text-2xl font-bold leading-none">{value}</p>
+      <p className={`text-2xl font-bold leading-none tabular-nums ${valueClass}`}>
+        {display}
+      </p>
       <p className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-200">
         {label}
       </p>
