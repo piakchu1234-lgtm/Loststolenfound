@@ -37,12 +37,7 @@ import {
   Pencil,
   Trash2,
   Search,
-  Maximize2,
-  Minimize2,
   Crosshair,
-  ChevronLeft,
-  ChevronRight,
-  Newspaper,
   PackageCheck,
   Heart,
   User,
@@ -68,13 +63,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 
 type CategoryId =
   | "lost_property"
@@ -332,7 +320,6 @@ export default function Home() {
   const [addressInput, setAddressInput] = useState<string>("");
   const [forwardGeocoding, setForwardGeocoding] = useState(false);
   const [isTargetingMode, setIsTargetingMode] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [potentialMatches, setPotentialMatches] = useState<MatchPin[]>([]);
   const [postSubmitView, setPostSubmitView] = useState<"form" | "matches">(
@@ -598,6 +585,7 @@ export default function Home() {
 
   async function castVoteForPin(pin: MapPin, direction: 1 | -1) {
     if (!requireAuth() || !session) return;
+    if (pin.user_id && pin.user_id === session.user.id) return;
     const previous = userVotes[pin.id] ?? null;
     const removing = previous === direction;
     const nextVote: 1 | -1 | null = removing ? null : direction;
@@ -769,6 +757,7 @@ export default function Home() {
   async function castVote(direction: 1 | -1) {
     if (!selectedPin || upvoting) return;
     if (!requireAuth() || !session) return;
+    if (selectedPin.user_id && selectedPin.user_id === session.user.id) return;
     const previous = userVote;
     const removing = previous === direction;
     const nextVote: 1 | -1 | null = removing ? null : direction;
@@ -1463,90 +1452,122 @@ export default function Home() {
         )}
       </Map>
 
-      <Sheet
-        open={!!selectedPin}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedPin(null);
-            setIsExpanded(false);
-          }
-        }}
-      >
-        <SheetContent
-          className={`w-full gap-0 transition-all duration-300 ease-out ${
-            isExpanded ? "sm:max-w-4xl" : "sm:max-w-md"
+      {/* Pin Detail Drawer (70vw desktop / 70vh mobile) — slides in when a pin is selected */}
+      <aside
+        aria-label="Pin details"
+        aria-hidden={!selectedPin}
+        className={`fixed z-[55] flex flex-col bg-white shadow-2xl ring-1 ring-zinc-200 transition-transform duration-300 ease-in-out dark:bg-zinc-900 dark:ring-zinc-700
+          bottom-0 left-0 right-0 h-[70vh] rounded-t-2xl border-t
+          md:top-0 md:right-0 md:bottom-0 md:left-auto md:h-auto md:w-[70vw] md:rounded-t-none md:rounded-l-2xl md:border-t-0 md:border-l
+          ${
+            selectedPin
+              ? "translate-y-0 md:translate-x-0"
+              : "translate-y-full md:translate-y-0 md:translate-x-full pointer-events-none"
           }`}
-        >
-          {selectedPin && (() => {
-            const v = PIN_VISUALS[selectedPin.category];
-            const HeaderIcon = v.Icon;
-            const categoryLabel =
-              CATEGORIES.find((c) => c.id === selectedPin.category)?.label ??
-              selectedPin.category;
-            const formattedDate = new Date(
-              selectedPin.created_at,
-            ).toLocaleString(undefined, {
-              dateStyle: "long",
-              timeStyle: "short",
-            });
-            const currentStatus: PinStatus = selectedPin.status ?? "open";
-            const statusMeta = STATUS_META[currentStatus];
-            return (
-              <>
-                <SheetHeader className="border-b">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-md ring-4 ${v.bg} ${v.text} ${v.ring}`}
-                      >
-                        <HeaderIcon className="h-6 w-6" aria-hidden />
-                      </span>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium uppercase tracking-wide text-zinc-500">
-                          {categoryLabel}
-                        </span>
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusMeta.classes}`}
-                        >
-                          {statusMeta.label}
-                        </span>
-                      </div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsExpanded((prev) => !prev)}
-                      aria-label={
-                        isExpanded ? "Collapse view" : "Expand view"
-                      }
-                      className="h-9 w-9 shrink-0 p-0"
-                    >
-                      {isExpanded ? (
-                        <Minimize2 className="h-4 w-4" aria-hidden />
-                      ) : (
-                        <Maximize2 className="h-4 w-4" aria-hidden />
-                      )}
-                    </Button>
-                  </div>
-                  <SheetTitle className="text-2xl font-bold leading-tight tracking-tight text-zinc-900">
-                    {selectedPin.title}
-                  </SheetTitle>
-                  <SheetDescription className="text-sm text-zinc-600">
-                    Reported {formattedDate}
-                  </SheetDescription>
+      >
+        {selectedPin && (() => {
+          const v = PIN_VISUALS[selectedPin.category];
+          const HeaderIcon = v.Icon;
+          const categoryLabel =
+            CATEGORIES.find((c) => c.id === selectedPin.category)?.label ??
+            selectedPin.category;
+          const formattedDate = new Date(
+            selectedPin.created_at,
+          ).toLocaleString(undefined, {
+            dateStyle: "long",
+            timeStyle: "short",
+          });
+          const currentStatus: PinStatus = selectedPin.status ?? "open";
+          const statusMeta = STATUS_META[currentStatus];
+          const isOwnPin =
+            !!session?.user?.id &&
+            selectedPin.user_id === session.user.id;
+          const voteDisabledReason = isOwnPin
+            ? "You cannot vote on your own report."
+            : !session
+              ? "Sign in to vote on reports."
+              : undefined;
+          return (
+            <>
+              {/* Header: close button on the LEFT to avoid the top-right user nav */}
+              <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedPin(null)}
+                  aria-label="Close pin details"
+                  className="h-9 shrink-0 gap-1.5 rounded-full px-3 text-xs font-semibold"
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                  <span>Close</span>
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setViewMode("map");
+                    if (mapRef.current) {
+                      mapRef.current.flyTo({
+                        center: [
+                          selectedPin.longitude,
+                          selectedPin.latitude,
+                        ],
+                        zoom: Math.max(mapRef.current.getZoom(), 16),
+                        duration: 1200,
+                        essential: true,
+                      });
+                    }
+                    setSelectedPin(null);
+                  }}
+                  aria-label="Show this pin on the map"
+                  className="h-9 gap-1.5 rounded-full bg-sky-600 px-4 text-xs font-semibold text-white shadow-md hover:bg-sky-700"
+                >
+                  <MapPinIcon className="h-4 w-4" aria-hidden />
+                  Show on Map
+                </Button>
+                <div className="ml-auto flex items-center gap-2">
                   <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => handleShare(selectedPin.id)}
                     aria-label="Share this report"
-                    className="mt-2 h-10 w-fit gap-2 rounded-full bg-zinc-900 px-4 text-sm font-semibold text-white shadow-md hover:bg-zinc-800 focus-visible:ring-4 focus-visible:ring-zinc-300"
+                    className="h-9 gap-1.5 rounded-full px-3 text-xs font-semibold"
                   >
                     <Share className="h-4 w-4" aria-hidden />
-                    Share
+                    <span className="hidden sm:inline">Share</span>
                   </Button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                <div className="border-b border-zinc-200 px-4 py-4 dark:border-zinc-700">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-md ring-4 ${v.bg} ${v.text} ${v.ring}`}
+                    >
+                      <HeaderIcon className="h-6 w-6" aria-hidden />
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+                        {categoryLabel}
+                      </span>
+                      <span
+                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ${statusMeta.classes}`}
+                      >
+                        {statusMeta.label}
+                      </span>
+                    </div>
+                  </div>
+                  <h2 className="mt-3 text-2xl font-bold leading-tight tracking-tight text-zinc-900 dark:text-zinc-50">
+                    {selectedPin.title}
+                  </h2>
+                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+                    Reported {formattedDate}
+                  </p>
 
                   {canModifyPin(selectedPin) && (
-                    <div className="mt-3">
+                    <div className="mt-4">
                       <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                         Update Status
                       </p>
@@ -1563,7 +1584,7 @@ export default function Home() {
                               className={`rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors disabled:cursor-not-allowed ${
                                 isActive
                                   ? `${meta.classes} ring-2 ring-offset-1`
-                                  : "bg-white text-zinc-700 ring-zinc-300 hover:bg-zinc-100"
+                                  : "bg-white text-zinc-700 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-700"
                               }`}
                             >
                               {meta.label}
@@ -1573,11 +1594,11 @@ export default function Home() {
                       </div>
                     </div>
                   )}
-                </SheetHeader>
+                </div>
 
-                <div className="flex-1 overflow-y-auto px-4 py-5">
+                <div className="px-4 py-5">
                   {selectedPin.image_url && (
-                    <div className="mb-5 overflow-hidden rounded-xl ring-1 ring-zinc-200">
+                    <div className="mb-5 overflow-hidden rounded-xl ring-1 ring-zinc-200 dark:ring-zinc-700">
                       <PinImage
                         src={selectedPin.image_url}
                         alt={`Photo evidence for ${selectedPin.title}`}
@@ -1588,26 +1609,26 @@ export default function Home() {
                   <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
                     Description
                   </h3>
-                  <p className="whitespace-pre-wrap text-base leading-relaxed text-zinc-800">
+                  <p className="whitespace-pre-wrap text-base leading-relaxed text-zinc-800 dark:text-zinc-200">
                     {selectedPin.description?.trim()
                       ? selectedPin.description
                       : "No additional description was provided."}
                   </p>
                 </div>
 
-                <div className="border-t bg-zinc-50 px-4 py-5">
+                <div className="border-t bg-zinc-50 px-4 py-5 dark:border-zinc-700 dark:bg-zinc-800/40">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
                         Community Verification
                       </h3>
                       <p
-                        className={`mt-0.5 text-2xl font-bold leading-none ${
+                        className={`mt-0.5 text-2xl font-bold leading-none tabular-nums ${
                           upvoteCount > 0
                             ? "text-emerald-600"
                             : upvoteCount < 0
                               ? "text-rose-600"
-                              : "text-zinc-700"
+                              : "text-zinc-700 dark:text-zinc-200"
                         }`}
                         aria-label={`Net trust score: ${upvoteCount}`}
                       >
@@ -1618,17 +1639,22 @@ export default function Home() {
                       <Button
                         type="button"
                         onClick={() => castVote(1)}
-                        disabled={upvoting || loadingSocial}
+                        disabled={
+                          upvoting || loadingSocial || isOwnPin
+                        }
                         aria-pressed={userVote === 1}
                         aria-label={
-                          userVote === 1
-                            ? "Remove your verification"
-                            : "Verify this report"
+                          isOwnPin
+                            ? "You cannot vote on your own report"
+                            : userVote === 1
+                              ? "Remove your verification"
+                              : "Verify this report"
                         }
-                        className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                        title={voteDisabledReason}
+                        className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                           userVote === 1
                             ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                            : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
+                            : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-700"
                         }`}
                       >
                         <ThumbsUp className="h-4 w-4" aria-hidden />
@@ -1637,17 +1663,22 @@ export default function Home() {
                       <Button
                         type="button"
                         onClick={() => castVote(-1)}
-                        disabled={upvoting || loadingSocial}
+                        disabled={
+                          upvoting || loadingSocial || isOwnPin
+                        }
                         aria-pressed={userVote === -1}
                         aria-label={
-                          userVote === -1
-                            ? "Remove your flag"
-                            : "Flag this report"
+                          isOwnPin
+                            ? "You cannot vote on your own report"
+                            : userVote === -1
+                              ? "Remove your flag"
+                              : "Flag this report"
                         }
-                        className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                        title={voteDisabledReason}
+                        className={`h-10 gap-2 rounded-full px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                           userVote === -1
                             ? "bg-rose-600 text-white hover:bg-rose-700"
-                            : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100"
+                            : "bg-white text-zinc-800 ring-1 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-700"
                         }`}
                       >
                         <ThumbsDown className="h-4 w-4" aria-hidden />
@@ -1655,6 +1686,11 @@ export default function Home() {
                       </Button>
                     </div>
                   </div>
+                  {isOwnPin && (
+                    <p className="mt-2 text-xs italic text-zinc-500 dark:text-zinc-400">
+                      You cannot vote on your own report.
+                    </p>
+                  )}
 
                   {canModifyPin(selectedPin) && (
                     <div className="mt-3 flex gap-2">
@@ -1690,11 +1726,11 @@ export default function Home() {
                         {[0, 1, 2].map((i) => (
                           <li
                             key={i}
-                            className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200"
+                            className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700"
                           >
-                            <div className="h-3 w-1/3 animate-pulse rounded bg-zinc-200" />
-                            <div className="mt-2 h-4 w-full animate-pulse rounded bg-zinc-200" />
-                            <div className="mt-1 h-4 w-3/4 animate-pulse rounded bg-zinc-200" />
+                            <div className="h-3 w-1/3 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+                            <div className="mt-2 h-4 w-full animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+                            <div className="mt-1 h-4 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
                           </li>
                         ))}
                       </ul>
@@ -1713,14 +1749,14 @@ export default function Home() {
                           return (
                             <li
                               key={c.id}
-                              className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200"
+                              className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700"
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0 flex-1">
-                                  <p className="truncate text-xs font-semibold text-zinc-900">
+                                  <p className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
                                     {emailLabel}
                                   </p>
-                                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800">
+                                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
                                     {c.content}
                                   </p>
                                   <p className="mt-1 text-xs text-zinc-500">
@@ -1768,18 +1804,18 @@ export default function Home() {
                         newComment.trim().length === 0 ||
                         !session
                       }
-                      className="h-auto bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                      className="h-auto bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
                     >
                       <Send className="mr-1 h-4 w-4" aria-hidden />
                       {postingComment ? "Posting…" : "Post"}
                     </Button>
                   </form>
                 </div>
-              </>
-            );
-          })()}
-        </SheetContent>
-      </Sheet>
+              </div>
+            </>
+          );
+        })()}
+      </aside>
 
       {/* Crosshair while choosing pin location */}
       {open && step === 3 && (
@@ -1825,78 +1861,25 @@ export default function Home() {
         </Button>
       </div>
 
-      {/* Pull-Out Handle (visible when feed drawer is closed) */}
-      {viewMode !== "list" && (
-        <button
-          type="button"
-          onClick={() => setViewMode("list")}
-          aria-label="Pull out feed drawer"
-          className="fixed z-[44] flex items-center gap-1.5 bg-zinc-900 text-white shadow-2xl ring-2 ring-white/40 transition-transform hover:scale-105 active:scale-95
-            md:right-0 md:top-1/2 md:-translate-y-1/2 md:rounded-l-xl md:px-2 md:py-4 md:flex-col
-            bottom-0 left-1/2 -translate-x-1/2 md:left-auto md:translate-x-0
-            rounded-t-xl px-4 py-1.5"
+      {/* Category filter bar — visible on the map view only */}
+      {viewMode === "map" && (
+        <div
+          role="group"
+          aria-label="Filter by category"
+          className="fixed left-4 right-4 z-[48] bottom-40 md:bottom-auto md:top-20 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-2xl"
         >
-          <ChevronLeft className="hidden md:block h-5 w-5" aria-hidden />
-          <Newspaper className="h-4 w-4 md:h-5 md:w-5" aria-hidden />
-          <span className="text-[11px] font-bold tracking-wide md:[writing-mode:vertical-rl] md:rotate-180">
-            Pull Out Feed
-          </span>
-        </button>
-      )}
-
-      {/* Sliding Feed Drawer (70vw on desktop, 70vh on mobile) */}
-      <aside
-        aria-label="Incident feed drawer"
-        aria-hidden={viewMode !== "list"}
-        className={`fixed z-[45] flex flex-col bg-white shadow-2xl ring-1 ring-zinc-200 transition-transform duration-300 ease-in-out dark:bg-zinc-900 dark:ring-zinc-700
-          bottom-0 left-0 right-0 h-[70vh] rounded-t-2xl border-t
-          md:top-0 md:right-0 md:bottom-0 md:left-auto md:h-auto md:w-[70vw] md:rounded-t-none md:rounded-l-2xl md:border-t-0 md:border-l
-          ${
-            viewMode === "list"
-              ? "translate-y-0 md:translate-x-0 md:translate-y-0"
-              : "translate-y-full md:translate-y-0 md:translate-x-full"
-          }`}
-      >
-        <header className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
-          <div className="flex items-center gap-2 min-w-0">
-            <Newspaper className="h-5 w-5 shrink-0 text-zinc-700 dark:text-zinc-200" aria-hidden />
-            <div className="min-w-0">
-              <h2 className="text-base font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-                Community Feed
-              </h2>
-              <p className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">
-                {filteredPins.length} report{filteredPins.length === 1 ? "" : "s"} matching filters
-              </p>
-            </div>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("map")}
-            aria-label="Push feed drawer back"
-            className="h-8 shrink-0 gap-1 rounded-full px-3 text-xs font-semibold"
-          >
-            <ChevronRight className="h-4 w-4 md:hidden rotate-90" aria-hidden />
-            <ChevronRight className="hidden md:block h-4 w-4" aria-hidden />
-            <span>Push Back</span>
-          </Button>
-        </header>
-
-        {/* Category filter strip (moved into drawer) */}
-        <div className="border-b border-zinc-200 bg-zinc-50/60 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-800/60">
-          <div className="flex max-w-full gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex max-w-full gap-1.5 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button
               type="button"
               aria-pressed={activeCategory === "all"}
               onClick={() => setActiveCategory("all")}
-              className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
                 activeCategory === "all"
-                  ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900"
-                  : "bg-white text-zinc-700 ring-1 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-700 dark:text-zinc-200 dark:ring-zinc-600"
+                  ? "bg-zinc-900 text-white shadow-md dark:bg-white dark:text-zinc-900"
+                  : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
               }`}
             >
-              All
+              <span className="whitespace-nowrap">All</span>
             </button>
             {CATEGORIES.map((c) => {
               const isActive = activeCategory === c.id;
@@ -1907,268 +1890,308 @@ export default function Home() {
                   type="button"
                   aria-pressed={isActive}
                   onClick={() => setActiveCategory(isActive ? "all" : c.id)}
-                  className={`flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
                     isActive
-                      ? `${v.bg} ${v.text}`
-                      : "bg-white text-zinc-700 ring-1 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-700 dark:text-zinc-200 dark:ring-zinc-600"
+                      ? `${v.bg} ${v.text} shadow-md ring-2 ring-offset-1 ring-zinc-900/10`
+                      : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
                   }`}
                 >
-                  <c.Icon className="h-3 w-3" aria-hidden />
+                  <c.Icon className="h-4 w-4" aria-hidden />
                   <span className="whitespace-nowrap">{c.label}</span>
                 </button>
               );
             })}
           </div>
         </div>
+      )}
 
-        {/* Latest Incidents (top 5, hyper-compact text-only) */}
-        {pins.length > 0 && (
-          <div className="border-b border-zinc-200 bg-amber-50/60 px-3 py-2 dark:border-zinc-700 dark:bg-amber-950/30">
-            <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-900 dark:text-amber-200">
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-              Latest Incidents
-            </p>
-            <ul className="flex flex-col gap-0.5">
-              {[...pins]
-                .sort(
-                  (a, b) =>
-                    new Date(b.created_at).getTime() -
-                    new Date(a.created_at).getTime(),
-                )
-                .slice(0, 5)
-                .map((p) => {
-                  const categoryLabel =
-                    CATEGORIES.find((c) => c.id === p.category)?.label ??
-                    p.category;
-                  return (
-                    <li key={p.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedPin(p);
-                          if (mapRef.current) {
-                            mapRef.current.flyTo({
-                              center: [p.longitude, p.latitude],
-                              zoom: Math.max(mapRef.current.getZoom(), 15),
-                              duration: 1200,
-                              essential: true,
-                            });
-                          }
-                          setViewMode("map");
-                        }}
-                        className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-amber-100/60 dark:hover:bg-amber-900/40"
-                      >
-                        <span className="shrink-0 text-[10px] font-mono text-amber-700 dark:text-amber-300">
-                          {formatRelativeTime(p.created_at)}
-                        </span>
-                        <span className="truncate font-semibold text-zinc-900 dark:text-zinc-50">
-                          {p.title}
-                        </span>
-                        <span className="shrink-0 text-[10px] uppercase text-zinc-500 dark:text-zinc-400">
-                          {categoryLabel}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-            </ul>
-          </div>
-        )}
-
-        {/* Dense OzBargain-style row list */}
-        <div className="flex-1 overflow-y-auto">
-          {filteredPins.length === 0 ? (
-            <div className="m-4 rounded-lg border-2 border-dashed border-zinc-300 bg-white p-6 text-center dark:border-zinc-700 dark:bg-zinc-800">
-              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-                {pins.length === 0
-                  ? "No reports yet."
-                  : "No reports match the active filters."}
-              </p>
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                {pins.length === 0
-                  ? "Be the first to share something happening nearby."
-                  : "Try clearing a filter to see more reports."}
-              </p>
+      {/* Full-screen Community Feed (replaces map when viewMode === "list") */}
+      {viewMode === "list" && (
+        <section
+          aria-label="Community feed"
+          className="fixed inset-0 z-[42] flex flex-col bg-white dark:bg-zinc-900"
+        >
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-200 px-4 pt-20 pb-3 dark:border-zinc-700 md:pt-6">
+            <div className="ml-auto md:ml-44 flex items-center gap-2 min-w-0">
+              <div className="min-w-0 text-right md:text-left">
+                <h2 className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
+                  Community Feed
+                </h2>
+                <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">
+                  {filteredPins.length} report
+                  {filteredPins.length === 1 ? "" : "s"} matching filters
+                </p>
+              </div>
             </div>
-          ) : (
-            <ul
-              className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-700"
-              aria-label="Incident reports"
-            >
-              {[...filteredPins]
-                .sort(
-                  (a, b) =>
-                    new Date(b.created_at).getTime() -
-                    new Date(a.created_at).getTime(),
-                )
-                .map((p) => {
-                  const v = PIN_VISUALS[p.category];
-                  const Icon = v.Icon;
-                  const categoryLabel =
-                    CATEGORIES.find((c) => c.id === p.category)?.label ??
-                    p.category;
-                  const net = voteCounts[p.id] ?? 0;
-                  const myVote = userVotes[p.id] ?? null;
-                  const pinStatus: PinStatus = p.status ?? "open";
-                  const statusMeta = STATUS_META[pinStatus];
-                  const creatorProfile = p.user_id
-                    ? profilesByUserId[p.user_id]
-                    : undefined;
-                  const creatorName =
-                    creatorProfile?.display_name?.trim() || "Anonymous";
-                  const creatorAvatar = creatorProfile?.avatar_url ?? null;
-                  const creatorRep =
-                    p.user_id && creatorReputation[p.user_id] !== undefined
-                      ? creatorReputation[p.user_id]
-                      : 0;
-                  const creatorRepLabel =
-                    creatorRep > 0 ? `+${creatorRep}` : `${creatorRep}`;
-                  return (
-                    <li
-                      key={p.id}
-                      className="flex items-stretch gap-2.5 px-3 py-2 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
-                    >
-                      {/* Left: thumbnail */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedPin(p);
-                          setViewMode("map");
-                        }}
-                        aria-label={`Open ${p.title}`}
-                        className="shrink-0 self-start"
-                      >
-                        {p.image_url ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img
-                            src={p.image_url}
-                            alt=""
-                            className="h-14 w-14 rounded object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
-                          />
-                        ) : (
-                          <span
-                            className={`flex h-14 w-14 items-center justify-center rounded ${v.bg} ${v.text} ring-1 ring-black/5`}
-                            aria-hidden
-                          >
-                            <Icon className="h-6 w-6" />
-                          </span>
-                        )}
-                      </button>
+            <div className="ml-auto" />
+          </header>
 
-                      {/* Middle: tight typography */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedPin(p);
-                          setViewMode("map");
-                        }}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-sm font-bold leading-tight text-zinc-900 dark:text-zinc-50">
+          {/* Latest Incidents (top 5, hyper-compact text-only) */}
+          {pins.length > 0 && (
+            <div className="shrink-0 border-b border-zinc-200 bg-amber-50/60 px-4 py-2 dark:border-zinc-700 dark:bg-amber-950/30">
+              <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-900 dark:text-amber-200">
+                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                Latest Incidents
+              </p>
+              <ul className="flex flex-col gap-0.5">
+                {[...pins]
+                  .sort(
+                    (a, b) =>
+                      new Date(b.created_at).getTime() -
+                      new Date(a.created_at).getTime(),
+                  )
+                  .slice(0, 5)
+                  .map((p) => {
+                    const categoryLabel =
+                      CATEGORIES.find((c) => c.id === p.category)?.label ??
+                      p.category;
+                    return (
+                      <li key={p.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPin(p);
+                            if (mapRef.current) {
+                              mapRef.current.flyTo({
+                                center: [p.longitude, p.latitude],
+                                zoom: Math.max(
+                                  mapRef.current.getZoom(),
+                                  15,
+                                ),
+                                duration: 1200,
+                                essential: true,
+                              });
+                            }
+                          }}
+                          className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-amber-100/60 dark:hover:bg-amber-900/40"
+                        >
+                          <span className="shrink-0 text-[10px] font-mono text-amber-700 dark:text-amber-300">
+                            {formatRelativeTime(p.created_at)}
+                          </span>
+                          <span className="truncate font-semibold text-zinc-900 dark:text-zinc-50">
                             {p.title}
                           </span>
-                          <span
-                            className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider ring-1 ${statusMeta.classes}`}
-                          >
-                            {statusMeta.label}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
-                          {p.description?.trim() ||
-                            "No additional description provided."}
-                        </p>
-                        <p className="mt-0.5 truncate text-[10px] text-zinc-500 dark:text-zinc-500">
-                          <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                          <span className="shrink-0 text-[10px] uppercase text-zinc-500 dark:text-zinc-400">
                             {categoryLabel}
                           </span>
-                          {" • "}
-                          <span className="inline-flex items-center gap-1 align-middle">
-                            {creatorAvatar ? (
-                              /* eslint-disable-next-line @next/next/no-img-element */
-                              <img
-                                src={creatorAvatar}
-                                alt=""
-                                className="h-3.5 w-3.5 rounded-full object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
-                              />
-                            ) : (
-                              <span
-                                className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300"
-                                aria-hidden
-                              >
-                                <User className="h-2.5 w-2.5" aria-hidden />
-                              </span>
-                            )}
-                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-                              {creatorName}
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+            </div>
+          )}
+
+          {/* Dense OzBargain-style row list */}
+          <div className="flex-1 overflow-y-auto">
+            {filteredPins.length === 0 ? (
+              <div className="m-4 rounded-lg border-2 border-dashed border-zinc-300 bg-white p-6 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                  {pins.length === 0
+                    ? "No reports yet."
+                    : "No reports match the active filters."}
+                </p>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  {pins.length === 0
+                    ? "Be the first to share something happening nearby."
+                    : "Try clearing a filter to see more reports."}
+                </p>
+              </div>
+            ) : (
+              <ul
+                className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-700"
+                aria-label="Incident reports"
+              >
+                {[...filteredPins]
+                  .sort(
+                    (a, b) =>
+                      new Date(b.created_at).getTime() -
+                      new Date(a.created_at).getTime(),
+                  )
+                  .map((p) => {
+                    const v = PIN_VISUALS[p.category];
+                    const Icon = v.Icon;
+                    const categoryLabel =
+                      CATEGORIES.find((c) => c.id === p.category)?.label ??
+                      p.category;
+                    const net = voteCounts[p.id] ?? 0;
+                    const myVote = userVotes[p.id] ?? null;
+                    const pinStatus: PinStatus = p.status ?? "open";
+                    const statusMeta = STATUS_META[pinStatus];
+                    const creatorProfile = p.user_id
+                      ? profilesByUserId[p.user_id]
+                      : undefined;
+                    const creatorName =
+                      creatorProfile?.display_name?.trim() || "Anonymous";
+                    const creatorAvatar =
+                      creatorProfile?.avatar_url ?? null;
+                    const creatorRep =
+                      p.user_id &&
+                      creatorReputation[p.user_id] !== undefined
+                        ? creatorReputation[p.user_id]
+                        : 0;
+                    const creatorRepLabel =
+                      creatorRep > 0 ? `+${creatorRep}` : `${creatorRep}`;
+                    const isOwnRow =
+                      !!session?.user?.id && p.user_id === session.user.id;
+                    const rowVoteTitle = isOwnRow
+                      ? "You cannot vote on your own report."
+                      : !session
+                        ? "Sign in to vote on reports."
+                        : undefined;
+                    return (
+                      <li
+                        key={p.id}
+                        className="flex items-stretch gap-2.5 px-3 py-2 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                      >
+                        {/* Left: thumbnail */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPin(p)}
+                          aria-label={`Open ${p.title}`}
+                          className="shrink-0 self-start"
+                        >
+                          {p.image_url ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={p.image_url}
+                              alt=""
+                              className="h-14 w-14 rounded object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
+                            />
+                          ) : (
+                            <span
+                              className={`flex h-14 w-14 items-center justify-center rounded ${v.bg} ${v.text} ring-1 ring-black/5`}
+                              aria-hidden
+                            >
+                              <Icon className="h-6 w-6" />
+                            </span>
+                          )}
+                        </button>
+
+                        {/* Middle: tight typography */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPin(p)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-bold leading-tight text-zinc-900 dark:text-zinc-50">
+                              {p.title}
                             </span>
                             <span
-                              className={`font-bold tabular-nums ${
-                                creatorRep > 0
-                                  ? "text-emerald-600"
-                                  : creatorRep < 0
-                                    ? "text-rose-600"
-                                    : "text-zinc-500"
-                              }`}
+                              className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider ring-1 ${statusMeta.classes}`}
                             >
-                              ({creatorRepLabel})
+                              {statusMeta.label}
                             </span>
-                          </span>
-                          {" • "}
-                          <time dateTime={p.created_at}>
-                            {formatRelativeTime(p.created_at)}
-                          </time>
-                        </p>
-                      </button>
+                          </div>
+                          <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+                            {p.description?.trim() ||
+                              "No additional description provided."}
+                          </p>
+                          <p className="mt-0.5 truncate text-[10px] text-zinc-500 dark:text-zinc-500">
+                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                              {categoryLabel}
+                            </span>
+                            {" • "}
+                            <span className="inline-flex items-center gap-1 align-middle">
+                              {creatorAvatar ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={creatorAvatar}
+                                  alt=""
+                                  className="h-3.5 w-3.5 rounded-full object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
+                                />
+                              ) : (
+                                <span
+                                  className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300"
+                                  aria-hidden
+                                >
+                                  <User className="h-2.5 w-2.5" aria-hidden />
+                                </span>
+                              )}
+                              <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                                {creatorName}
+                              </span>
+                              <span
+                                className={`font-bold tabular-nums ${
+                                  creatorRep > 0
+                                    ? "text-emerald-600"
+                                    : creatorRep < 0
+                                      ? "text-rose-600"
+                                      : "text-zinc-500"
+                                }`}
+                              >
+                                ({creatorRepLabel})
+                              </span>
+                            </span>
+                            {" • "}
+                            <time dateTime={p.created_at}>
+                              {formatRelativeTime(p.created_at)}
+                            </time>
+                          </p>
+                        </button>
 
-                      {/* Right: net trust score with up/down */}
-                      <div className="flex shrink-0 flex-col items-center justify-center gap-0.5">
-                        <button
-                          type="button"
-                          onClick={() => castVoteForPin(p, 1)}
-                          aria-label="Upvote"
-                          aria-pressed={myVote === 1}
-                          className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
-                            myVote === 1
-                              ? "bg-emerald-600 text-white"
-                              : "text-zinc-500 hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-900/40"
-                          }`}
-                        >
-                          <ThumbsUp className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                        <span
-                          className={`text-xs font-bold tabular-nums leading-none ${
-                            net > 0
-                              ? "text-emerald-600"
-                              : net < 0
-                                ? "text-rose-600"
-                                : "text-zinc-600 dark:text-zinc-400"
-                          }`}
-                          aria-label={`Net trust score ${net}`}
-                        >
-                          {net > 0 ? `+${net}` : net}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => castVoteForPin(p, -1)}
-                          aria-label="Downvote"
-                          aria-pressed={myVote === -1}
-                          className={`flex h-6 w-6 items-center justify-center rounded transition-colors ${
-                            myVote === -1
-                              ? "bg-rose-600 text-white"
-                              : "text-zinc-500 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-900/40"
-                          }`}
-                        >
-                          <ThumbsDown className="h-3.5 w-3.5" aria-hidden />
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-            </ul>
-          )}
-        </div>
-      </aside>
+                        {/* Right: net trust score with up/down */}
+                        <div className="flex shrink-0 flex-col items-center justify-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => castVoteForPin(p, 1)}
+                            disabled={isOwnRow}
+                            aria-label={
+                              isOwnRow
+                                ? "You cannot vote on your own report"
+                                : "Upvote"
+                            }
+                            aria-pressed={myVote === 1}
+                            title={rowVoteTitle}
+                            className={`flex h-6 w-6 items-center justify-center rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                              myVote === 1
+                                ? "bg-emerald-600 text-white"
+                                : "text-zinc-500 hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-900/40"
+                            }`}
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                          <span
+                            className={`text-xs font-bold tabular-nums leading-none ${
+                              net > 0
+                                ? "text-emerald-600"
+                                : net < 0
+                                  ? "text-rose-600"
+                                  : "text-zinc-600 dark:text-zinc-400"
+                            }`}
+                            aria-label={`Net trust score ${net}`}
+                          >
+                            {net > 0 ? `+${net}` : net}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => castVoteForPin(p, -1)}
+                            disabled={isOwnRow}
+                            aria-label={
+                              isOwnRow
+                                ? "You cannot vote on your own report"
+                                : "Downvote"
+                            }
+                            aria-pressed={myVote === -1}
+                            title={rowVoteTitle}
+                            className={`flex h-6 w-6 items-center justify-center rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                              myVote === -1
+                                ? "bg-rose-600 text-white"
+                                : "text-zinc-500 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-900/40"
+                            }`}
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5" aria-hidden />
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
 
       <Dialog open={open && !isTargetingMode} onOpenChange={handleOpenChange}>
         <DialogContent
