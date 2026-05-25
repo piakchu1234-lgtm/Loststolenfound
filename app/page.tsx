@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Map, { Marker, type MapRef, type ViewState } from "react-map-gl/mapbox";
+import Map, { Marker, Source, Layer, type MapRef, type ViewState } from "react-map-gl/mapbox";
 import type mapboxgl from "mapbox-gl";
 import { useTheme } from "next-themes";
 import imageCompression from "browser-image-compression";
@@ -40,6 +40,9 @@ import {
   Maximize2,
   Minimize2,
   Crosshair,
+  ChevronLeft,
+  ChevronRight,
+  Newspaper,
   PackageCheck,
   Heart,
   User,
@@ -342,6 +345,8 @@ export default function Home() {
   const [postSubmitView, setPostSubmitView] = useState<"form" | "matches">(
     "form",
   );
+  const [voteCounts, setVoteCounts] = useState<Record<string, number>>({});
+  const [userVotes, setUserVotes] = useState<Record<string, 1 | -1>>({});
 
   const center = {
     latitude: viewState.latitude ?? INITIAL_VIEW.latitude,
@@ -527,6 +532,107 @@ export default function Home() {
       prev ? prev.filter((c) => c.id !== commentId) : prev,
     );
   }
+
+  async function fetchAllVotes() {
+    const { data, error } = await supabase
+      .from("PinUpvote")
+      .select("pin_id,user_id,vote_type");
+    if (error) {
+      console.error("[fetchAllVotes]", error);
+      return;
+    }
+    const counts: Record<string, number> = {};
+    const mine: Record<string, 1 | -1> = {};
+    for (const row of (data ?? []) as {
+      pin_id: string;
+      user_id: string;
+      vote_type: number;
+    }[]) {
+      counts[row.pin_id] = (counts[row.pin_id] ?? 0) + (row.vote_type ?? 0);
+      if (session?.user.id === row.user_id) {
+        if (row.vote_type === 1) mine[row.pin_id] = 1;
+        else if (row.vote_type === -1) mine[row.pin_id] = -1;
+      }
+    }
+    setVoteCounts(counts);
+    setUserVotes(mine);
+  }
+
+  async function castVoteForPin(pin: MapPin, direction: 1 | -1) {
+    if (!requireAuth() || !session) return;
+    const previous = userVotes[pin.id] ?? null;
+    const removing = previous === direction;
+    const nextVote: 1 | -1 | null = removing ? null : direction;
+    const delta = (nextVote ?? 0) - (previous ?? 0);
+
+    setUserVotes((prev) => {
+      const next = { ...prev };
+      if (nextVote === null) delete next[pin.id];
+      else next[pin.id] = nextVote;
+      return next;
+    });
+    setVoteCounts((prev) => ({
+      ...prev,
+      [pin.id]: (prev[pin.id] ?? 0) + delta,
+    }));
+    if (selectedPin?.id === pin.id) {
+      setUserVote(nextVote);
+      setUpvoteCount((c) => c + delta);
+    }
+
+    const { error } = removing
+      ? await supabase
+          .from("PinUpvote")
+          .delete()
+          .eq("pin_id", pin.id)
+          .eq("user_id", session.user.id)
+      : await supabase.from("PinUpvote").upsert(
+          {
+            pin_id: pin.id,
+            user_id: session.user.id,
+            vote_type: direction,
+          },
+          { onConflict: "pin_id,user_id" },
+        );
+
+    if (error) {
+      console.error("[castVoteForPin]", error);
+      setUserVotes((prev) => {
+        const next = { ...prev };
+        if (previous === null) delete next[pin.id];
+        else next[pin.id] = previous;
+        return next;
+      });
+      setVoteCounts((prev) => ({
+        ...prev,
+        [pin.id]: (prev[pin.id] ?? 0) - delta,
+      }));
+      if (selectedPin?.id === pin.id) {
+        setUserVote(previous);
+        setUpvoteCount((c) => c - delta);
+      }
+    } else if (
+      !removing &&
+      direction === 1 &&
+      pin.user_id &&
+      pin.user_id !== session.user.id
+    ) {
+      const notifRes = await supabase.from("Notification").insert({
+        user_id: pin.user_id,
+        pin_id: pin.id,
+        type: "verify",
+        message: "A neighbor verified your report.",
+      });
+      if (notifRes.error) {
+        console.error("[castVoteForPin:notify]", notifRes.error);
+      }
+    }
+  }
+
+  useEffect(() => {
+    fetchAllVotes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id, pins.length]);
 
   async function fetchSocial(pinId: string) {
     setLoadingSocial(true);
@@ -1105,17 +1211,17 @@ export default function Home() {
       <div
         role="tablist"
         aria-label="Choose view"
-        className="fixed top-6 left-1/2 -translate-x-1/2 z-[50] bg-white rounded-full shadow-lg p-1 flex gap-1"
+        className="fixed top-6 left-4 z-[50] bg-white dark:bg-zinc-800 rounded-full shadow-lg p-1 flex gap-1 ring-1 ring-zinc-200 dark:ring-zinc-700"
       >
         <button
           type="button"
           role="tab"
           aria-selected={viewMode === "map"}
           onClick={() => setViewMode("map")}
-          className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+          className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
             viewMode === "map"
-              ? "bg-zinc-900 text-white"
-              : "bg-transparent text-zinc-700 hover:bg-zinc-100"
+              ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900"
+              : "bg-transparent text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
           }`}
         >
           <MapIcon className="h-4 w-4" aria-hidden />
@@ -1126,10 +1232,10 @@ export default function Home() {
           role="tab"
           aria-selected={viewMode === "list"}
           onClick={() => setViewMode("list")}
-          className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+          className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
             viewMode === "list"
-              ? "bg-zinc-900 text-white"
-              : "bg-transparent text-zinc-700 hover:bg-zinc-100"
+              ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900"
+              : "bg-transparent text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
           }`}
         >
           <List className="h-4 w-4" aria-hidden />
@@ -1138,11 +1244,10 @@ export default function Home() {
       </div>
 
       <div
-        role="group"
-        aria-label="Filter incidents"
-        className="fixed top-20 left-0 right-0 z-[50] flex flex-col items-center gap-2 px-4"
+        role="search"
+        className="fixed top-6 right-44 sm:right-52 z-[50] hidden md:block w-64"
       >
-        <div className="relative w-full max-w-md">
+        <div className="relative">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
             aria-hidden
@@ -1153,75 +1258,60 @@ export default function Home() {
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search incidents..."
             aria-label="Search incidents"
-            className="h-10 rounded-full bg-white/95 pl-9 pr-3 text-sm shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700"
+            className="h-9 rounded-full bg-white/95 pl-9 pr-3 text-sm shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700"
           />
-        </div>
-        <div className="flex max-w-full gap-2 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <button
-            type="button"
-            aria-pressed={activeCategory === "all"}
-            onClick={() => setActiveCategory("all")}
-            className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
-              activeCategory === "all"
-                ? "bg-zinc-900 text-white shadow-md dark:bg-white dark:text-zinc-900"
-                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
-            }`}
-          >
-            <span className="whitespace-nowrap">All</span>
-          </button>
-          {CATEGORIES.map((c) => {
-            const isActive = activeCategory === c.id;
-            const v = PIN_VISUALS[c.id];
-            return (
-              <button
-                key={c.id}
-                type="button"
-                aria-pressed={isActive}
-                onClick={() => setActiveCategory(isActive ? "all" : c.id)}
-                className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
-                  isActive
-                    ? `${v.bg} ${v.text} shadow-md ring-2 ring-offset-1 ring-zinc-900/10`
-                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
-                }`}
-              >
-                <c.Icon className="h-4 w-4" aria-hidden />
-                <span className="whitespace-nowrap">{c.label}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div
-          role="group"
-          aria-label="Filter by status"
-          className="flex max-w-full gap-2 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {(["all", "open", "in_progress", "resolved"] as const).map((s) => {
-            const isActive = activeStatus === s;
-            const label = s === "all" ? "All Status" : STATUS_META[s].label;
-            return (
-              <button
-                key={s}
-                type="button"
-                aria-pressed={isActive}
-                onClick={() => setActiveStatus(s)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
-                  isActive
-                    ? s === "all"
-                      ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-white dark:text-zinc-900 dark:ring-white"
-                      : `${STATUS_META[s].classes} ring-2 ring-offset-1`
-                    : "bg-white text-zinc-700 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-700 dark:text-zinc-200 dark:ring-zinc-600 dark:hover:bg-zinc-600"
-                }`}
-              >
-                {label}
-              </button>
-            );
-          })}
         </div>
       </div>
 
-      {viewMode === "map" && (
-        <>
-          <Map
+      <div
+        role="search"
+        className="fixed top-20 right-4 z-[50] md:hidden w-[calc(100vw-32px)] max-w-xs"
+      >
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search incidents..."
+            aria-label="Search incidents"
+            className="h-9 rounded-full bg-white/95 pl-9 pr-3 text-sm shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700"
+          />
+        </div>
+      </div>
+
+      <div
+        role="group"
+        aria-label="Filter by status"
+        className="fixed bottom-24 left-4 z-[40] flex max-w-[calc(100vw-32px)] gap-1.5 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {(["all", "open", "in_progress", "resolved"] as const).map((s) => {
+          const isActive = activeStatus === s;
+          const label = s === "all" ? "All" : STATUS_META[s].label;
+          return (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => setActiveStatus(s)}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+                isActive
+                  ? s === "all"
+                    ? "bg-zinc-900 text-white ring-zinc-900 dark:bg-white dark:text-zinc-900 dark:ring-white"
+                    : `${STATUS_META[s].classes} ring-2 ring-offset-1`
+                  : "bg-white text-zinc-700 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-700 dark:text-zinc-200 dark:ring-zinc-600 dark:hover:bg-zinc-600"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      <Map
         ref={mapRef}
         {...viewState}
         onMove={(e) => setViewState(e.viewState)}
@@ -1231,6 +1321,63 @@ export default function Home() {
         style={{ width: "100%", height: "100%" }}
         mapStyle={mapStyle}
       >
+        <Source
+          id="fuzz-radius-source"
+          type="geojson"
+          data={{
+            type: "FeatureCollection",
+            features: filteredPins
+              .filter((p) => SENSITIVE_CATEGORIES.has(p.category))
+              .map((p) => ({
+                type: "Feature",
+                geometry: {
+                  type: "Point",
+                  coordinates: [p.longitude, p.latitude],
+                },
+                properties: { id: p.id, category: p.category },
+              })),
+          }}
+        >
+          <Layer
+            id="fuzz-radius-fill"
+            type="circle"
+            paint={{
+              "circle-radius": [
+                "interpolate",
+                ["exponential", 2],
+                ["zoom"],
+                10,
+                4,
+                15,
+                40,
+                20,
+                900,
+              ],
+              "circle-color": [
+                "match",
+                ["get", "category"],
+                "break_in",
+                "#f43f5e",
+                "suspicious_activity",
+                "#8b5cf6",
+                "#71717a",
+              ],
+              "circle-opacity": 0.12,
+              "circle-stroke-color": [
+                "match",
+                ["get", "category"],
+                "break_in",
+                "#e11d48",
+                "suspicious_activity",
+                "#7c3aed",
+                "#52525b",
+              ],
+              "circle-stroke-opacity": 0.4,
+              "circle-stroke-width": 1.5,
+            }}
+          />
+        </Source>
+
         {filteredPins.map((p) => {
           const v = PIN_VISUALS[p.category];
           const Icon = v.Icon;
@@ -1245,12 +1392,25 @@ export default function Home() {
                 setSelectedPin(p);
               }}
             >
-              <span
-                className={`flex h-9 w-9 cursor-pointer items-center justify-center rounded-full shadow-lg ring-4 transition-transform hover:scale-110 ${v.bg} ${v.text} ${v.ring}`}
-                title={p.title}
-              >
-                <Icon className="h-5 w-5" aria-hidden />
-              </span>
+              <div className="relative flex flex-col items-center" style={{ zIndex: 10 }}>
+                <span
+                  className={`flex h-9 w-9 cursor-pointer items-center justify-center rounded-full shadow-lg ring-4 transition-transform hover:scale-110 ${v.bg} ${v.text} ${v.ring}`}
+                  title={p.title}
+                >
+                  <Icon className="h-5 w-5" aria-hidden />
+                </span>
+                {(viewState.zoom ?? 0) >= 14 && (
+                  <span
+                    className="pointer-events-none mt-1 max-w-[140px] truncate rounded-md bg-white/95 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-900 shadow ring-1 ring-zinc-900/10 dark:bg-zinc-900/95 dark:text-zinc-50 dark:ring-white/20"
+                    style={{
+                      textShadow:
+                        "0 1px 2px rgba(255,255,255,0.95), 0 -1px 2px rgba(255,255,255,0.95), 1px 0 2px rgba(255,255,255,0.95), -1px 0 2px rgba(255,255,255,0.95)",
+                    }}
+                  >
+                    {p.title}
+                  </span>
+                )}
+              </div>
             </Marker>
           );
         })}
