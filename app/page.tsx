@@ -43,6 +43,8 @@ import {
   User,
   ThumbsUp,
   ThumbsDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
@@ -93,6 +95,7 @@ interface MapPin {
   status: PinStatus | null;
   created_at: string;
   updated_at: string;
+  profiles?: { display_name: string | null; avatar_url: string | null } | null;
 }
 
 type PinStatus = "open" | "in_progress" | "resolved";
@@ -289,6 +292,7 @@ export default function Home() {
   >("idle");
   const [pins, setPins] = useState<MapPin[]>([]);
   const [selectedPin, setSelectedPin] = useState<MapPin | null>(null);
+  const [drawerWide, setDrawerWide] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<"map" | "list">("map");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -333,6 +337,13 @@ export default function Home() {
   const [creatorReputation, setCreatorReputation] = useState<
     Record<string, number>
   >({});
+  const [showScanModal, setShowScanModal] = useState(false);
+  const [scanKeyword, setScanKeyword] = useState("");
+  const [scanCategory, setScanCategory] = useState<
+    "all" | "lost_property" | "missing_pet"
+  >("all");
+  const [scanResults, setScanResults] = useState<MapPin[] | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
 
   const center = {
     latitude: viewState.latitude ?? INITIAL_VIEW.latitude,
@@ -454,33 +465,60 @@ export default function Home() {
   }
 
   async function fetchPins() {
-    const { data, error } = await supabase.from("MapPin").select("*");
-    if (error) {
-      console.error("[fetchPins]", error);
-      return;
+    const joinRes = await supabase
+      .from("MapPin")
+      .select("*, profiles(display_name, avatar_url)");
+
+    let rows: MapPin[];
+    if (joinRes.error) {
+      console.warn(
+        "[fetchPins:join] falling back to separate query",
+        joinRes.error,
+      );
+      const { data, error } = await supabase.from("MapPin").select("*");
+      if (error) {
+        console.error("[fetchPins]", error);
+        return;
+      }
+      rows = (data ?? []) as MapPin[];
+    } else {
+      rows = (joinRes.data ?? []) as MapPin[];
     }
-    const rows = (data ?? []) as MapPin[];
     setPins(rows);
 
-    const userIds = Array.from(
-      new Set(rows.map((r) => r.user_id).filter((id): id is string => !!id)),
+    const map: Record<
+      string,
+      { display_name: string | null; avatar_url: string | null }
+    > = {};
+    for (const r of rows) {
+      if (r.user_id && r.profiles) {
+        map[r.user_id] = {
+          display_name: r.profiles.display_name,
+          avatar_url: r.profiles.avatar_url,
+        };
+      }
+    }
+
+    const missingUserIds = Array.from(
+      new Set(
+        rows
+          .map((r) => r.user_id)
+          .filter((id): id is string => !!id && !map[id]),
+      ),
     );
-    if (userIds.length === 0) {
-      setProfilesByUserId({});
+    if (missingUserIds.length === 0) {
+      setProfilesByUserId(map);
       return;
     }
     const profilesRes = await supabase
       .from("profiles")
       .select("id,display_name,avatar_url")
-      .in("id", userIds);
+      .in("id", missingUserIds);
     if (profilesRes.error) {
       console.error("[fetchPins:profiles]", profilesRes.error);
+      setProfilesByUserId(map);
       return;
     }
-    const map: Record<
-      string,
-      { display_name: string | null; avatar_url: string | null }
-    > = {};
     for (const row of (profilesRes.data ?? []) as {
       id: string;
       display_name: string | null;
@@ -548,6 +586,49 @@ export default function Home() {
     setComments((prev) =>
       prev ? prev.filter((c) => c.id !== commentId) : prev,
     );
+  }
+
+  async function runOwnerScan() {
+    setScanLoading(true);
+    setScanResults(null);
+    let query = supabase
+      .from("MapPin")
+      .select("*")
+      .neq("status", "resolved");
+    if (scanCategory === "all") {
+      query = query.in("category", ["lost_property", "missing_pet"]);
+    } else {
+      query = query.eq("category", scanCategory);
+    }
+    const keyword = scanKeyword.trim();
+    if (keyword) {
+      const safe = keyword.replace(/[%,]/g, " ");
+      query = query.or(`title.ilike.%${safe}%,description.ilike.%${safe}%`);
+    }
+    const { data, error } = await query
+      .order("created_at", { ascending: false })
+      .limit(25);
+    setScanLoading(false);
+    if (error) {
+      console.error("[runOwnerScan]", error);
+      setScanResults([]);
+      return;
+    }
+    setScanResults((data ?? []) as MapPin[]);
+  }
+
+  function openScanResultPin(p: MapPin) {
+    setShowScanModal(false);
+    setSelectedPin(p);
+    setViewMode("map");
+    if (mapRef.current) {
+      mapRef.current.flyTo({
+        center: [p.longitude, p.latitude],
+        zoom: Math.max(mapRef.current.getZoom(), 15),
+        duration: 1200,
+        essential: true,
+      });
+    }
   }
 
   async function fetchAllVotes() {
@@ -687,6 +768,7 @@ export default function Home() {
   }
 
   useEffect(() => {
+    setDrawerWide(false);
     if (!selectedPin) {
       setComments([]);
       setUpvoteCount(0);
@@ -1184,7 +1266,21 @@ export default function Home() {
           </Button>
         </div>
       )}
-      <div className="fixed top-6 right-4 z-[50] flex gap-2">
+      <div className="fixed top-6 right-4 z-[50] flex max-w-[calc(100vw-2rem)] flex-wrap items-center justify-end gap-2 sm:gap-3">
+        <div role="search" className="relative hidden md:block w-48 lg:w-64">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search incidents..."
+            aria-label="Search incidents"
+            className="h-9 w-full rounded-full bg-white/95 pl-9 pr-3 text-sm shadow-md ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700"
+          />
+        </div>
         {mounted && (
           <Button
             type="button"
@@ -1270,25 +1366,49 @@ export default function Home() {
         </button>
       </div>
 
-      <div
-        role="search"
-        className="fixed top-6 right-44 sm:right-52 z-[50] hidden md:block w-64"
-      >
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
-            aria-hidden
-          />
-          <Input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search incidents..."
-            aria-label="Search incidents"
-            className="h-9 rounded-full bg-white/95 pl-9 pr-3 text-sm shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700"
-          />
+      {/* Centered desktop top filter pill — Map view only. Drops to row 2 below the top cluster on md/lg; joins row 1 at xl where there's room. */}
+      {viewMode === "map" && (
+        <div className="fixed top-20 left-1/2 z-[49] hidden max-w-[calc(100vw-2rem)] -translate-x-1/2 md:block xl:top-6">
+          <div
+            role="group"
+            aria-label="Filter by category"
+            className="flex flex-wrap items-center justify-center gap-1 rounded-full bg-white/95 p-1 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700"
+          >
+            <button
+              type="button"
+              aria-pressed={activeCategory === "all"}
+              onClick={() => setActiveCategory("all")}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+                activeCategory === "all"
+                  ? "bg-zinc-900 text-white shadow-sm dark:bg-white dark:text-zinc-900"
+                  : "bg-transparent text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              }`}
+            >
+              <span className="whitespace-nowrap">All</span>
+            </button>
+            {CATEGORIES.map((c) => {
+              const isActive = activeCategory === c.id;
+              const v = PIN_VISUALS[c.id];
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => setActiveCategory(isActive ? "all" : c.id)}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+                    isActive
+                      ? `${v.bg} ${v.text} shadow-sm`
+                      : "bg-transparent text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  <c.Icon className="h-4 w-4" aria-hidden />
+                  <span className="whitespace-nowrap">{c.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       <div
         role="search"
@@ -1313,7 +1433,7 @@ export default function Home() {
       <div
         role="group"
         aria-label="Filter by status"
-        className="fixed bottom-24 left-4 z-[40] flex max-w-[calc(100vw-32px)] gap-1.5 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="fixed bottom-24 left-4 z-[40] flex max-w-[calc(100vw-32px)] flex-wrap gap-2 rounded-2xl bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700"
       >
         {(["all", "open", "in_progress", "resolved"] as const).map((s) => {
           const isActive = activeStatus === s;
@@ -1452,13 +1572,14 @@ export default function Home() {
         )}
       </Map>
 
-      {/* Pin Detail Drawer (70vw desktop / 70vh mobile) — slides in when a pin is selected */}
+      {/* Pin Detail Drawer (progressive narrow/wide) — slides in when a pin is selected */}
       <aside
         aria-label="Pin details"
         aria-hidden={!selectedPin}
-        className={`fixed z-[55] flex flex-col bg-white shadow-2xl ring-1 ring-zinc-200 transition-transform duration-300 ease-in-out dark:bg-zinc-900 dark:ring-zinc-700
+        className={`fixed z-[55] flex flex-col bg-white shadow-2xl ring-1 ring-zinc-200 transition-all duration-300 ease-in-out dark:bg-zinc-900 dark:ring-zinc-700
           bottom-0 left-0 right-0 h-[70vh] rounded-t-2xl border-t
-          md:top-0 md:right-0 md:bottom-0 md:left-auto md:h-auto md:w-[70vw] md:rounded-t-none md:rounded-l-2xl md:border-t-0 md:border-l
+          md:top-0 md:right-0 md:bottom-0 md:left-auto md:h-auto md:rounded-t-none md:rounded-l-2xl md:border-t-0 md:border-l
+          ${drawerWide ? "md:w-[75vw]" : "md:w-96"}
           ${
             selectedPin
               ? "translate-y-0 md:translate-x-0"
@@ -1487,17 +1608,48 @@ export default function Home() {
             : !session
               ? "Sign in to vote on reports."
               : undefined;
+          const detailProfile =
+            selectedPin.profiles ??
+            (selectedPin.user_id
+              ? profilesByUserId[selectedPin.user_id]
+              : undefined);
+          const detailCreatorName =
+            detailProfile?.display_name?.trim() || "Anonymous";
+          const detailCreatorAvatar = detailProfile?.avatar_url ?? null;
           return (
             <>
+              {/* Edge-attached minimize/maximize tab — outside-left edge of drawer (desktop only) */}
+              <button
+                type="button"
+                onClick={() => setDrawerWide((w) => !w)}
+                aria-label={
+                  drawerWide
+                    ? "Minimise pin details panel"
+                    : "Maximise pin details panel"
+                }
+                aria-pressed={drawerWide}
+                title={drawerWide ? "Minimise panel" : "Maximise panel"}
+                className="absolute -left-8 top-1/2 z-[60] hidden h-16 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-l-md border border-r-0 border-zinc-200 bg-white text-zinc-700 shadow-md transition-colors hover:bg-zinc-50 md:flex dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                {drawerWide ? (
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                ) : (
+                  <ChevronLeft className="h-4 w-4" aria-hidden />
+                )}
+              </button>
               {/* Header: close button on the LEFT to avoid the top-right user nav */}
-              <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+              <div
+                className={`relative z-[50] flex items-center gap-2 border-b border-zinc-200 px-4 py-3 pl-4 dark:border-zinc-700 ${
+                  drawerWide ? "md:pr-[26rem]" : ""
+                }`}
+              >
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   onClick={() => setSelectedPin(null)}
                   aria-label="Close pin details"
-                  className="h-9 shrink-0 gap-1.5 rounded-full px-3 text-xs font-semibold"
+                  className="relative z-[50] h-9 shrink-0 gap-1.5 rounded-full px-3 text-xs font-semibold"
                 >
                   <X className="h-4 w-4" aria-hidden />
                   <span>Close</span>
@@ -1566,7 +1718,33 @@ export default function Home() {
                     Reported {formattedDate}
                   </p>
 
-                  {canModifyPin(selectedPin) && (
+                  <div className="mt-3 flex items-center gap-2.5">
+                    {detailCreatorAvatar ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={detailCreatorAvatar}
+                        alt=""
+                        className="h-9 w-9 shrink-0 rounded-full object-cover ring-2 ring-zinc-200 dark:ring-zinc-700"
+                      />
+                    ) : (
+                      <span
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300"
+                        aria-hidden
+                      >
+                        <User className="h-5 w-5" aria-hidden />
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                        Posted by
+                      </p>
+                      <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-50">
+                        {detailCreatorName}
+                      </p>
+                    </div>
+                  </div>
+
+                  {canModifyPin(selectedPin) && drawerWide && (
                     <div className="mt-4">
                       <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                         Update Status
@@ -1606,14 +1784,18 @@ export default function Home() {
                       />
                     </div>
                   )}
-                  <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-                    Description
-                  </h3>
-                  <p className="whitespace-pre-wrap text-base leading-relaxed text-zinc-800 dark:text-zinc-200">
-                    {selectedPin.description?.trim()
-                      ? selectedPin.description
-                      : "No additional description was provided."}
-                  </p>
+                  {drawerWide && (
+                    <>
+                      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                        Description
+                      </h3>
+                      <p className="whitespace-pre-wrap text-base leading-relaxed text-zinc-800 dark:text-zinc-200">
+                        {selectedPin.description?.trim()
+                          ? selectedPin.description
+                          : "No additional description was provided."}
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 <div className="border-t bg-zinc-50 px-4 py-5 dark:border-zinc-700 dark:bg-zinc-800/40">
@@ -1692,7 +1874,7 @@ export default function Home() {
                     </p>
                   )}
 
-                  {canModifyPin(selectedPin) && (
+                  {canModifyPin(selectedPin) && drawerWide && (
                     <div className="mt-3 flex gap-2">
                       <Button
                         type="button"
@@ -1717,99 +1899,119 @@ export default function Home() {
                     </div>
                   )}
 
-                  <div className="mt-4">
-                    <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      Comments {comments && `(${comments.length})`}
-                    </h4>
-                    {comments === null ? (
-                      <ul className="flex flex-col gap-2" aria-label="Loading comments">
-                        {[0, 1, 2].map((i) => (
-                          <li
-                            key={i}
-                            className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700"
-                          >
-                            <div className="h-3 w-1/3 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
-                            <div className="mt-2 h-4 w-full animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
-                            <div className="mt-1 h-4 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
-                          </li>
-                        ))}
-                      </ul>
-                    ) : comments.length === 0 ? (
-                      <p className="text-sm text-zinc-500">
-                        No comments yet. Be the first to help!
-                      </p>
-                    ) : (
-                      <ul className="flex flex-col gap-2">
-                        {comments.map((c) => {
-                          const canDeleteComment =
-                            session?.user?.id === c.user_id || isAdmin;
-                          const emailLabel = c.user_email
-                            ? c.user_email.split("@")[0]
-                            : "Anonymous";
-                          return (
-                            <li
-                              key={c.id}
-                              className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                                    {emailLabel}
-                                  </p>
-                                  <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
-                                    {c.content}
-                                  </p>
-                                  <p className="mt-1 text-xs text-zinc-500">
-                                    <time dateTime={c.created_at}>
-                                      {formatRelativeTime(c.created_at)}
-                                    </time>
-                                  </p>
-                                </div>
-                                {canDeleteComment && (
-                                  <button
-                                    type="button"
-                                    onClick={() => deleteComment(c.id)}
-                                    aria-label="Delete comment"
-                                    className="shrink-0 rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
-                                  >
-                                    <Trash2 className="h-4 w-4" aria-hidden />
-                                  </button>
-                                )}
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
+                  {drawerWide && (
+                    <>
+                      <div className="mt-4">
+                        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                          Comments {comments && `(${comments.length})`}
+                        </h4>
+                        {comments === null ? (
+                          <ul className="flex flex-col gap-2" aria-label="Loading comments">
+                            {[0, 1, 2].map((i) => (
+                              <li
+                                key={i}
+                                className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700"
+                              >
+                                <div className="h-3 w-1/3 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+                                <div className="mt-2 h-4 w-full animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+                                <div className="mt-1 h-4 w-3/4 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+                              </li>
+                            ))}
+                          </ul>
+                        ) : comments.length === 0 ? (
+                          <p className="text-sm text-zinc-500">
+                            No comments yet. Be the first to help!
+                          </p>
+                        ) : (
+                          <ul className="flex flex-col gap-2">
+                            {comments.map((c) => {
+                              const canDeleteComment =
+                                session?.user?.id === c.user_id || isAdmin;
+                              const emailLabel = c.user_email
+                                ? c.user_email.split("@")[0]
+                                : "Anonymous";
+                              return (
+                                <li
+                                  key={c.id}
+                                  className="rounded-lg bg-white px-3 py-2 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                                        {emailLabel}
+                                      </p>
+                                      <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">
+                                        {c.content}
+                                      </p>
+                                      <p className="mt-1 text-xs text-zinc-500">
+                                        <time dateTime={c.created_at}>
+                                          {formatRelativeTime(c.created_at)}
+                                        </time>
+                                      </p>
+                                    </div>
+                                    {canDeleteComment && (
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteComment(c.id)}
+                                        aria-label="Delete comment"
+                                        className="shrink-0 rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-rose-50 hover:text-rose-600"
+                                      >
+                                        <Trash2 className="h-4 w-4" aria-hidden />
+                                      </button>
+                                    )}
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
 
-                  <form onSubmit={submitComment} className="mt-4 flex gap-2">
-                    <Textarea
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      placeholder={
-                        session
-                          ? "Add a comment…"
-                          : "Sign in to leave a comment."
-                      }
-                      aria-label="New comment"
-                      className="min-h-[44px] flex-1 text-base"
-                      disabled={postingComment || !session}
-                      rows={2}
-                    />
-                    <Button
-                      type="submit"
-                      disabled={
-                        postingComment ||
-                        newComment.trim().length === 0 ||
-                        !session
-                      }
-                      className="h-auto bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
-                    >
-                      <Send className="mr-1 h-4 w-4" aria-hidden />
-                      {postingComment ? "Posting…" : "Post"}
-                    </Button>
-                  </form>
+                      <form onSubmit={submitComment} className="mt-4 flex gap-2">
+                        <Textarea
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          placeholder={
+                            session
+                              ? "Add a comment…"
+                              : "Sign in to leave a comment."
+                          }
+                          aria-label="New comment"
+                          className="min-h-[44px] flex-1 text-base"
+                          disabled={postingComment || !session}
+                          rows={2}
+                        />
+                        <Button
+                          type="submit"
+                          disabled={
+                            postingComment ||
+                            newComment.trim().length === 0 ||
+                            !session
+                          }
+                          className="h-auto bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
+                        >
+                          <Send className="mr-1 h-4 w-4" aria-hidden />
+                          {postingComment ? "Posting…" : "Post"}
+                        </Button>
+                      </form>
+
+                      {/* Ad Zone 2 — Pin Detail drawer bottom banner */}
+                      <div
+                        role="complementary"
+                        aria-label="Sponsored placement"
+                        className="mt-5 flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-100 px-4 text-center dark:border-zinc-600 dark:bg-zinc-900/40"
+                      >
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                            Advertisement
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                            Sponsor this neighborhood space
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </>
@@ -1861,14 +2063,14 @@ export default function Home() {
         </Button>
       </div>
 
-      {/* Category filter bar — visible on the map view only */}
+      {/* Category filter bar — mobile only on the map view; desktop lives in the centered top strip */}
       {viewMode === "map" && (
         <div
           role="group"
           aria-label="Filter by category"
-          className="fixed left-4 right-4 z-[48] bottom-40 md:bottom-auto md:top-20 md:left-1/2 md:right-auto md:-translate-x-1/2 md:max-w-2xl"
+          className="fixed left-4 right-4 bottom-40 z-[48] md:hidden"
         >
-          <div className="flex max-w-full gap-1.5 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex w-full flex-wrap gap-2 rounded-2xl bg-white/95 p-2 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700">
             <button
               type="button"
               aria-pressed={activeCategory === "all"}
@@ -1926,9 +2128,27 @@ export default function Home() {
             <div className="ml-auto" />
           </header>
 
-          {/* Latest Incidents (top 5, hyper-compact text-only) */}
+          {/* Ad Zone 1 — Community Feed top banner */}
+          <div
+            role="complementary"
+            aria-label="Sponsored placement"
+            className="shrink-0 border-b border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/60"
+          >
+            <div className="mx-auto flex h-20 max-w-[1200px] items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-100 px-4 text-center dark:border-zinc-600 dark:bg-zinc-900/40">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+                  Advertisement
+                </p>
+                <p className="mt-1 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                  Sponsor this neighborhood space
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile-only: Latest Incidents strip (sidebar takes over on md+) */}
           {pins.length > 0 && (
-            <div className="shrink-0 border-b border-zinc-200 bg-amber-50/60 px-4 py-2 dark:border-zinc-700 dark:bg-amber-950/30">
+            <div className="shrink-0 border-b border-zinc-200 bg-amber-50/60 px-4 py-2 dark:border-zinc-700 dark:bg-amber-950/30 md:hidden">
               <p className="mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-amber-900 dark:text-amber-200">
                 <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
                 Latest Incidents
@@ -1982,138 +2202,142 @@ export default function Home() {
             </div>
           )}
 
-          {/* Dense OzBargain-style row list */}
+          {/* OzBargain-style two-column layout on desktop */}
           <div className="flex-1 overflow-y-auto">
-            {filteredPins.length === 0 ? (
-              <div className="m-4 rounded-lg border-2 border-dashed border-zinc-300 bg-white p-6 text-center dark:border-zinc-700 dark:bg-zinc-800">
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-                  {pins.length === 0
-                    ? "No reports yet."
-                    : "No reports match the active filters."}
-                </p>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  {pins.length === 0
-                    ? "Be the first to share something happening nearby."
-                    : "Try clearing a filter to see more reports."}
-                </p>
-              </div>
-            ) : (
-              <ul
-                className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-700"
-                aria-label="Incident reports"
-              >
-                {[...filteredPins]
-                  .sort(
-                    (a, b) =>
-                      new Date(b.created_at).getTime() -
-                      new Date(a.created_at).getTime(),
-                  )
-                  .map((p) => {
-                    const v = PIN_VISUALS[p.category];
-                    const Icon = v.Icon;
-                    const categoryLabel =
-                      CATEGORIES.find((c) => c.id === p.category)?.label ??
-                      p.category;
-                    const net = voteCounts[p.id] ?? 0;
-                    const myVote = userVotes[p.id] ?? null;
-                    const pinStatus: PinStatus = p.status ?? "open";
-                    const statusMeta = STATUS_META[pinStatus];
-                    const creatorProfile = p.user_id
-                      ? profilesByUserId[p.user_id]
-                      : undefined;
-                    const creatorName =
-                      creatorProfile?.display_name?.trim() || "Anonymous";
-                    const creatorAvatar =
-                      creatorProfile?.avatar_url ?? null;
-                    const creatorRep =
-                      p.user_id &&
-                      creatorReputation[p.user_id] !== undefined
-                        ? creatorReputation[p.user_id]
-                        : 0;
-                    const creatorRepLabel =
-                      creatorRep > 0 ? `+${creatorRep}` : `${creatorRep}`;
-                    const isOwnRow =
-                      !!session?.user?.id && p.user_id === session.user.id;
-                    const rowVoteTitle = isOwnRow
-                      ? "You cannot vote on your own report."
-                      : !session
-                        ? "Sign in to vote on reports."
-                        : undefined;
-                    return (
-                      <li
-                        key={p.id}
-                        className="flex items-stretch gap-2.5 px-3 py-2 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
-                      >
-                        {/* Left: thumbnail */}
+            <div className="mx-auto w-full max-w-[1400px] md:grid md:grid-cols-4 md:gap-4 md:px-4 md:py-4">
+              {/* Left column (75% on desktop) */}
+              <div className="md:col-span-3 md:flex md:flex-col">
+                {/* Category filter bar — pinned at top of feed column */}
+                <div
+                  role="group"
+                  aria-label="Filter feed by category"
+                  className="sticky top-0 z-10 -mx-0 mb-0 border-b border-zinc-200 bg-white/95 px-3 py-2 backdrop-blur dark:border-zinc-700 dark:bg-zinc-900/95 md:rounded-lg md:border md:shadow-sm"
+                >
+                  <div className="flex w-full gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    <button
+                      type="button"
+                      aria-pressed={activeCategory === "all"}
+                      onClick={() => setActiveCategory("all")}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+                        activeCategory === "all"
+                          ? "bg-zinc-900 text-white shadow-md dark:bg-white dark:text-zinc-900"
+                          : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
+                      }`}
+                    >
+                      <span className="whitespace-nowrap">All</span>
+                    </button>
+                    {CATEGORIES.map((c) => {
+                      const isActive = activeCategory === c.id;
+                      const v = PIN_VISUALS[c.id];
+                      return (
                         <button
+                          key={c.id}
                           type="button"
-                          onClick={() => setSelectedPin(p)}
-                          aria-label={`Open ${p.title}`}
-                          className="shrink-0 self-start"
+                          aria-pressed={isActive}
+                          onClick={() =>
+                            setActiveCategory(isActive ? "all" : c.id)
+                          }
+                          className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 ${
+                            isActive
+                              ? `${v.bg} ${v.text} shadow-md ring-2 ring-offset-1 ring-zinc-900/10`
+                              : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-600"
+                          }`}
                         >
-                          {p.image_url ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img
-                              src={p.image_url}
-                              alt=""
-                              className="h-14 w-14 rounded object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
-                            />
-                          ) : (
-                            <span
-                              className={`flex h-14 w-14 items-center justify-center rounded ${v.bg} ${v.text} ring-1 ring-black/5`}
-                              aria-hidden
-                            >
-                              <Icon className="h-6 w-6" />
-                            </span>
-                          )}
+                          <c.Icon className="h-4 w-4" aria-hidden />
+                          <span className="whitespace-nowrap">{c.label}</span>
                         </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-                        {/* Middle: tight typography */}
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPin(p)}
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-bold leading-tight text-zinc-900 dark:text-zinc-50">
-                              {p.title}
-                            </span>
-                            <span
-                              className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider ring-1 ${statusMeta.classes}`}
+                {filteredPins.length === 0 ? (
+                  <div className="m-4 rounded-lg border-2 border-dashed border-zinc-300 bg-white p-6 text-center dark:border-zinc-700 dark:bg-zinc-800">
+                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                      {pins.length === 0
+                        ? "No reports yet."
+                        : "No reports match the active filters."}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                      {pins.length === 0
+                        ? "Be the first to share something happening nearby."
+                        : "Try clearing a filter to see more reports."}
+                    </p>
+                  </div>
+                ) : (
+                  <ul
+                    className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-700 md:mt-3 md:divide-y-0 md:rounded-lg md:border md:border-zinc-200 md:bg-white md:shadow-sm md:dark:border-zinc-700 md:dark:bg-zinc-800"
+                    aria-label="Incident reports"
+                  >
+                    {[...filteredPins]
+                      .sort(
+                        (a, b) =>
+                          new Date(b.created_at).getTime() -
+                          new Date(a.created_at).getTime(),
+                      )
+                      .map((p) => {
+                        const v = PIN_VISUALS[p.category];
+                        const Icon = v.Icon;
+                        const categoryLabel =
+                          CATEGORIES.find((c) => c.id === p.category)?.label ??
+                          p.category;
+                        const net = voteCounts[p.id] ?? 0;
+                        const myVote = userVotes[p.id] ?? null;
+                        const pinStatus: PinStatus = p.status ?? "open";
+                        const statusMeta = STATUS_META[pinStatus];
+                        const creatorProfile =
+                          p.profiles ??
+                          (p.user_id ? profilesByUserId[p.user_id] : undefined);
+                        const creatorName =
+                          creatorProfile?.display_name?.trim() || "Anonymous";
+                        const creatorAvatar =
+                          creatorProfile?.avatar_url ?? null;
+                        const creatorRep =
+                          p.user_id &&
+                          creatorReputation[p.user_id] !== undefined
+                            ? creatorReputation[p.user_id]
+                            : 0;
+                        const creatorRepLabel =
+                          creatorRep > 0 ? `+${creatorRep}` : `${creatorRep}`;
+                        const isOwnRow =
+                          !!session?.user?.id && p.user_id === session.user.id;
+                        const rowVoteTitle = isOwnRow
+                          ? "You cannot vote on your own report."
+                          : !session
+                            ? "Sign in to vote on reports."
+                            : undefined;
+                        return (
+                          <li
+                            key={p.id}
+                            className="flex items-stretch gap-3 px-3 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/60 md:border-b md:border-zinc-200 md:last:border-b-0 md:dark:border-zinc-700"
+                          >
+                            {/* Far Left: Avatar + Name (OzBargain-style poster column) */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPin(p)}
+                              aria-label={`Posted by ${creatorName}`}
+                              className="flex w-20 shrink-0 flex-col items-center gap-1 self-start text-center"
                             >
-                              {statusMeta.label}
-                            </span>
-                          </div>
-                          <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
-                            {p.description?.trim() ||
-                              "No additional description provided."}
-                          </p>
-                          <p className="mt-0.5 truncate text-[10px] text-zinc-500 dark:text-zinc-500">
-                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-                              {categoryLabel}
-                            </span>
-                            {" • "}
-                            <span className="inline-flex items-center gap-1 align-middle">
                               {creatorAvatar ? (
                                 /* eslint-disable-next-line @next/next/no-img-element */
                                 <img
                                   src={creatorAvatar}
                                   alt=""
-                                  className="h-3.5 w-3.5 rounded-full object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
+                                  className="h-10 w-10 rounded-full object-cover ring-2 ring-zinc-200 dark:ring-zinc-700"
                                 />
                               ) : (
                                 <span
-                                  className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300"
+                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300"
                                   aria-hidden
                                 >
-                                  <User className="h-2.5 w-2.5" aria-hidden />
+                                  <User className="h-5 w-5" aria-hidden />
                                 </span>
                               )}
-                              <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                              <span className="line-clamp-1 w-full text-[10px] font-semibold text-zinc-700 dark:text-zinc-300">
                                 {creatorName}
                               </span>
                               <span
-                                className={`font-bold tabular-nums ${
+                                className={`text-[10px] font-bold tabular-nums leading-none ${
                                   creatorRep > 0
                                     ? "text-emerald-600"
                                     : creatorRep < 0
@@ -2123,72 +2347,203 @@ export default function Home() {
                               >
                                 ({creatorRepLabel})
                               </span>
-                            </span>
-                            {" • "}
-                            <time dateTime={p.created_at}>
-                              {formatRelativeTime(p.created_at)}
-                            </time>
-                          </p>
-                        </button>
+                            </button>
 
-                        {/* Right: net trust score with up/down */}
-                        <div className="flex shrink-0 flex-col items-center justify-center gap-0.5">
-                          <button
-                            type="button"
-                            onClick={() => castVoteForPin(p, 1)}
-                            disabled={isOwnRow}
-                            aria-label={
-                              isOwnRow
-                                ? "You cannot vote on your own report"
-                                : "Upvote"
-                            }
-                            aria-pressed={myVote === 1}
-                            title={rowVoteTitle}
-                            className={`flex h-6 w-6 items-center justify-center rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                              myVote === 1
-                                ? "bg-emerald-600 text-white"
-                                : "text-zinc-500 hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-900/40"
-                            }`}
-                          >
-                            <ThumbsUp className="h-3.5 w-3.5" aria-hidden />
-                          </button>
-                          <span
-                            className={`text-xs font-bold tabular-nums leading-none ${
-                              net > 0
-                                ? "text-emerald-600"
-                                : net < 0
-                                  ? "text-rose-600"
-                                  : "text-zinc-600 dark:text-zinc-400"
-                            }`}
-                            aria-label={`Net trust score ${net}`}
-                          >
-                            {net > 0 ? `+${net}` : net}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => castVoteForPin(p, -1)}
-                            disabled={isOwnRow}
-                            aria-label={
-                              isOwnRow
-                                ? "You cannot vote on your own report"
-                                : "Downvote"
-                            }
-                            aria-pressed={myVote === -1}
-                            title={rowVoteTitle}
-                            className={`flex h-6 w-6 items-center justify-center rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                              myVote === -1
-                                ? "bg-rose-600 text-white"
-                                : "text-zinc-500 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-900/40"
-                            }`}
-                          >
-                            <ThumbsDown className="h-3.5 w-3.5" aria-hidden />
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-              </ul>
-            )}
+                            {/* Middle: Title + Description + meta */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPin(p)}
+                              className="min-w-0 flex-1 text-left"
+                            >
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="line-clamp-2 text-sm font-bold leading-tight text-zinc-900 dark:text-zinc-50">
+                                  {p.title}
+                                </span>
+                                <span
+                                  className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider ring-1 ${statusMeta.classes}`}
+                                >
+                                  {statusMeta.label}
+                                </span>
+                              </div>
+                              <p className="mt-1 line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-400">
+                                {p.description?.trim() ||
+                                  "No additional description provided."}
+                              </p>
+                              <p className="mt-1 truncate text-[10px] text-zinc-500 dark:text-zinc-500">
+                                <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                                  {categoryLabel}
+                                </span>
+                                {" • "}
+                                <time dateTime={p.created_at}>
+                                  {formatRelativeTime(p.created_at)}
+                                </time>
+                              </p>
+                            </button>
+
+                            {/* Far Right: Incident thumbnail */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPin(p)}
+                              aria-label={`Open ${p.title}`}
+                              className="shrink-0 self-start"
+                            >
+                              {p.image_url ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img
+                                  src={p.image_url}
+                                  alt=""
+                                  className="h-16 w-16 rounded object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
+                                />
+                              ) : (
+                                <span
+                                  className={`flex h-16 w-16 items-center justify-center rounded ${v.bg} ${v.text} ring-1 ring-black/5`}
+                                  aria-hidden
+                                >
+                                  <Icon className="h-7 w-7" />
+                                </span>
+                              )}
+                            </button>
+
+                            {/* Vote column */}
+                            <div className="flex shrink-0 flex-col items-center justify-center gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => castVoteForPin(p, 1)}
+                                disabled={isOwnRow}
+                                aria-label={
+                                  isOwnRow
+                                    ? "You cannot vote on your own report"
+                                    : "Upvote"
+                                }
+                                aria-pressed={myVote === 1}
+                                title={rowVoteTitle}
+                                className={`flex h-6 w-6 items-center justify-center rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                  myVote === 1
+                                    ? "bg-emerald-600 text-white"
+                                    : "text-zinc-500 hover:bg-emerald-100 hover:text-emerald-700 dark:hover:bg-emerald-900/40"
+                                }`}
+                              >
+                                <ThumbsUp className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                              <span
+                                className={`text-xs font-bold tabular-nums leading-none ${
+                                  net > 0
+                                    ? "text-emerald-600"
+                                    : net < 0
+                                      ? "text-rose-600"
+                                      : "text-zinc-600 dark:text-zinc-400"
+                                }`}
+                                aria-label={`Net trust score ${net}`}
+                              >
+                                {net > 0 ? `+${net}` : net}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => castVoteForPin(p, -1)}
+                                disabled={isOwnRow}
+                                aria-label={
+                                  isOwnRow
+                                    ? "You cannot vote on your own report"
+                                    : "Downvote"
+                                }
+                                aria-pressed={myVote === -1}
+                                title={rowVoteTitle}
+                                className={`flex h-6 w-6 items-center justify-center rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                  myVote === -1
+                                    ? "bg-rose-600 text-white"
+                                    : "text-zinc-500 hover:bg-rose-100 hover:text-rose-700 dark:hover:bg-rose-900/40"
+                                }`}
+                              >
+                                <ThumbsDown className="h-3.5 w-3.5" aria-hidden />
+                              </button>
+                            </div>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                )}
+              </div>
+
+              {/* Right sidebar (25% on desktop) — OzBargain "New Deals" style */}
+              <aside
+                aria-label="Latest incidents sidebar"
+                className="hidden md:col-span-1 md:block"
+              >
+                <div className="sticky top-4 rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-800">
+                  <div className="flex items-center gap-1.5 border-b border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                    <h3 className="text-[11px] font-bold uppercase tracking-widest text-zinc-700 dark:text-zinc-200">
+                      Latest Incidents
+                    </h3>
+                  </div>
+                  {pins.length === 0 ? (
+                    <p className="px-3 py-3 text-xs text-zinc-500 dark:text-zinc-400">
+                      Nothing reported yet.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-700">
+                      {[...pins]
+                        .sort(
+                          (a, b) =>
+                            new Date(b.created_at).getTime() -
+                            new Date(a.created_at).getTime(),
+                        )
+                        .slice(0, 5)
+                        .map((p) => {
+                          const categoryLabel =
+                            CATEGORIES.find((c) => c.id === p.category)
+                              ?.label ?? p.category;
+                          const sideProfile =
+                            p.profiles ??
+                            (p.user_id
+                              ? profilesByUserId[p.user_id]
+                              : undefined);
+                          const sideAvatar = sideProfile?.avatar_url ?? null;
+                          return (
+                            <li key={p.id}>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedPin(p)}
+                                className="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-700/40"
+                              >
+                                {sideAvatar ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img
+                                    src={sideAvatar}
+                                    alt=""
+                                    className="mt-0.5 h-6 w-6 shrink-0 rounded-full object-cover ring-1 ring-zinc-200 dark:ring-zinc-700"
+                                  />
+                                ) : (
+                                  <span
+                                    className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-300"
+                                    aria-hidden
+                                  >
+                                    <User className="h-3.5 w-3.5" aria-hidden />
+                                  </span>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <p className="line-clamp-2 text-xs font-semibold leading-snug text-zinc-900 dark:text-zinc-50">
+                                    {p.title}
+                                  </p>
+                                  <p className="mt-0.5 truncate text-[10px] text-zinc-500 dark:text-zinc-400">
+                                    <span className="uppercase tracking-wide">
+                                      {categoryLabel}
+                                    </span>
+                                    {" • "}
+                                    <time dateTime={p.created_at}>
+                                      {formatRelativeTime(p.created_at)}
+                                    </time>
+                                  </p>
+                                </div>
+                              </button>
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  )}
+                </div>
+              </aside>
+            </div>
           </div>
         </section>
       )}

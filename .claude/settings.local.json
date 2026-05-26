@@ -11,7 +11,13 @@
       "Bash(taskkill *)",
       "Bash(git stash *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(claude mcp *)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ],
+  "enableAllProjectMcpServers": true
 }
