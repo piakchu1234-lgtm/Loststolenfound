@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -58,6 +59,13 @@ export default function RootLayout({
           {children}
         </ThemeProvider>
         <Analytics />
+        <Script
+          id="google-adsense"
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX"
+          strategy="afterInteractive"
+          crossOrigin="anonymous"
+          async
+        />
       </body>
     </html>
   );

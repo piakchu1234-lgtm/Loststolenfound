@@ -45,6 +45,8 @@ import {
   ThumbsDown,
   ChevronLeft,
   ChevronRight,
+  Phone,
+  ShieldOff,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
@@ -53,6 +55,7 @@ import { supabase } from "@/lib/supabase";
 import { findPotentialMatches, type MatchPin } from "@/lib/matching";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notification-bell";
+import SidebarAdBanner from "@/components/SidebarAdBanner";
 import {
   Dialog,
   DialogContent,
@@ -1368,7 +1371,7 @@ export default function Home() {
 
       {/* Centered desktop top filter pill — Map view only. Drops to row 2 below the top cluster on md/lg; joins row 1 at xl where there's room. */}
       {viewMode === "map" && (
-        <div className="fixed top-20 left-1/2 z-[49] hidden max-w-[calc(100vw-2rem)] -translate-x-1/2 md:block xl:top-6">
+        <div className="fixed top-20 left-1/2 z-40 hidden max-w-[calc(100vw-2rem)] -translate-x-1/2 md:block xl:top-6">
           <div
             role="group"
             aria-label="Filter by category"
@@ -1465,7 +1468,7 @@ export default function Home() {
         onLoad={() => setIsMapLoaded(true)}
         onClick={handleMapClick}
         mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
-        style={{ width: "100%", height: "100%" }}
+        style={{ width: "100%", height: "100%", zIndex: 0 }}
         mapStyle={mapStyle}
       >
         <Source
@@ -1573,6 +1576,13 @@ export default function Home() {
       </Map>
 
       {/* Pin Detail Drawer (progressive narrow/wide) — slides in when a pin is selected */}
+      {selectedPin && drawerWide && (
+        <div
+          aria-hidden
+          onClick={() => setDrawerWide(false)}
+          className="fixed inset-0 z-30 hidden bg-black/20 backdrop-blur-sm transition-opacity duration-300 md:block"
+        />
+      )}
       <aside
         aria-label="Pin details"
         aria-hidden={!selectedPin}
@@ -1629,7 +1639,7 @@ export default function Home() {
                 }
                 aria-pressed={drawerWide}
                 title={drawerWide ? "Minimise panel" : "Maximise panel"}
-                className="absolute -left-8 top-1/2 z-[60] hidden h-16 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-l-md border border-r-0 border-zinc-200 bg-white text-zinc-700 shadow-md transition-colors hover:bg-zinc-50 md:flex dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                className="absolute -left-8 top-1/2 z-[60] hidden h-16 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-l-md border border-r-0 border-zinc-200 bg-white text-zinc-700 shadow-md transition-all duration-300 hover:bg-zinc-50 md:flex dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 {drawerWide ? (
                   <ChevronRight className="h-4 w-4" aria-hidden />
@@ -1677,7 +1687,26 @@ export default function Home() {
                   <MapPinIcon className="h-4 w-4" aria-hidden />
                   Show on Map
                 </Button>
-                <div className="ml-auto flex items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  <a
+                    href="tel:000"
+                    aria-label="Call emergency services on triple zero"
+                    className="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-md flex items-center gap-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-1"
+                  >
+                    <Phone className="h-4 w-4" aria-hidden />
+                    <span>Call Police</span>
+                  </a>
+                  <button
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    aria-label="Silent Report (coming soon)"
+                    title="Coming Soon: Secure backend integration pending."
+                    className="bg-slate-800 hover:bg-slate-900 text-white font-medium px-4 py-2 rounded-md flex items-center gap-2 text-xs shadow-sm opacity-50 cursor-not-allowed"
+                  >
+                    <ShieldOff className="h-4 w-4" aria-hidden />
+                    <span>Silent Report</span>
+                  </button>
                   <Button
                     type="button"
                     variant="outline"
@@ -1995,21 +2024,8 @@ export default function Home() {
                         </Button>
                       </form>
 
-                      {/* Ad Zone 2 — Pin Detail drawer bottom banner */}
-                      <div
-                        role="complementary"
-                        aria-label="Sponsored placement"
-                        className="mt-5 flex h-24 items-center justify-center rounded-md border border-dashed border-zinc-300 bg-zinc-100 px-4 text-center dark:border-zinc-600 dark:bg-zinc-900/40"
-                      >
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                            Advertisement
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
-                            Sponsor this neighborhood space
-                          </p>
-                        </div>
-                      </div>
+              {/* Ad Zone 2 — Pin Detail drawer bottom banner */}
+                      <SidebarAdBanner />
                     </>
                   )}
                 </div>
@@ -2068,7 +2084,7 @@ export default function Home() {
         <div
           role="group"
           aria-label="Filter by category"
-          className="fixed left-4 right-4 bottom-40 z-[48] md:hidden"
+          className="fixed left-4 right-4 bottom-40 z-40 md:hidden"
         >
           <div className="flex w-full flex-wrap gap-2 rounded-2xl bg-white/95 p-2 shadow-lg ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-800/95 dark:ring-zinc-700">
             <button
