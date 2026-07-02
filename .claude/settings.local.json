@@ -13,11 +13,31 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(echo \"EXIT:$?\")",
-      "Bash(claude mcp *)"
+      "Bash(claude mcp *)",
+      "Bash(openspec init *)",
+      "Bash(openspec new *)",
+      "Bash(openspec status *)",
+      "Bash(openspec instructions *)",
+      "mcp__filesystem__create_directory",
+      "Bash(supabase init *)",
+      "Bash(supabase migration *)",
+      "Bash(supabase link *)",
+      "Bash(supabase login *)",
+      "Bash(psql *)",
+      "Bash(NODE_TLS_REJECT_UNAUTHORIZED=0 npx tsx *)",
+      "Bash(npx eslint *)",
+      "Bash(git commit -m '🔴 Critical fixes: Build errors and security vulnerabilities *)",
+      "Bash(git commit -m '⚡ Performance and stability improvements *)",
+      "Bash(git commit -m '📚 Documentation: Comprehensive audit and deployment guides *)",
+      "Bash(git push *)",
+      "Bash(git commit -m '📖 Add deployment quick start guides *)",
+      "WebSearch",
+      "Bash(xargs wc -l)",
+      "Bash(xargs grep -l \"Badge\")"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "supabase"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

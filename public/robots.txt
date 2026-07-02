@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+# Disallow admin/private paths (if you add them in future)
+# Disallow: /admin/
+# Disallow: /api/
+
+# Sitemap
+Sitemap: https://loststolenfound.vercel.app/sitemap.xml

@@ -48,12 +48,25 @@ import {
   ChevronRight,
   Phone,
   ShieldOff,
+  TrendingUp,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/lib/supabase";
 import { findPotentialMatches, type MatchPin } from "@/lib/matching";
+import {
+  getMatchesForPin,
+  type PotentialMatch
+} from "@/lib/matching-enhanced";
+import {
+  getClaimsForPin,
+  type Claim
+} from "@/lib/claims";
+import { MatchList } from "@/components/match-list";
+import { MatchComparison } from "@/components/match-comparison";
+import { ClaimDialog } from "@/components/claim-dialog";
+import { ClaimReview } from "@/components/claim-review";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notification-bell";
 import SidebarAdBanner from "@/components/SidebarAdBanner";
@@ -65,6 +78,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+} from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -348,6 +365,18 @@ export default function Home() {
   >("all");
   const [scanResults, setScanResults] = useState<MapPin[] | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
+
+  // Matching system state
+  const [matches, setMatches] = useState<PotentialMatch[]>([])
+  const [showMatches, setShowMatches] = useState(false)
+  const [selectedMatch, setSelectedMatch] = useState<PotentialMatch | null>(null)
+  const [matchesLoading, setMatchesLoading] = useState(false)
+
+  // Claims system state
+  const [claims, setClaims] = useState<Claim[]>([])
+  const [showClaimDialog, setShowClaimDialog] = useState(false)
+  const [showClaimReview, setShowClaimReview] = useState(false)
+  const [claimsLoading, setClaimsLoading] = useState(false)
 
   const center = {
     latitude: viewState.latitude ?? INITIAL_VIEW.latitude,
@@ -813,6 +842,112 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinned?.lat, pinned?.lng, step]);
+
+  // Fetch matches when selected pin changes
+  useEffect(() => {
+    if (selectedPin?.id) {
+      fetchMatchesForPin(selectedPin.id)
+      // Also fetch claims if user is the owner
+      if (session?.user && selectedPin.user_id === session.user.id) {
+        fetchClaimsForSelectedPin(selectedPin.id)
+      }
+    } else {
+      setMatches([])
+      setShowMatches(false)
+      setSelectedMatch(null)
+      setClaims([])
+      setShowClaimDialog(false)
+      setShowClaimReview(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPin?.id, session?.user?.id])
+
+  // Fetch matches for a pin
+  async function fetchMatchesForPin(pinId: string) {
+    if (!pinId) return
+
+    try {
+      setMatchesLoading(true)
+      const response = await fetch(`/api/matches?pinId=${pinId}`)
+
+      if (!response.ok) {
+        console.error('[fetchMatchesForPin] API error')
+        return
+      }
+
+      const data = await response.json()
+      setMatches(data.matches || [])
+    } catch (err) {
+      console.error('[fetchMatchesForPin] Exception:', err)
+      setMatches([])
+    } finally {
+      setMatchesLoading(false)
+    }
+  }
+
+  // Handle viewing a match
+  function handleViewMatch(match: PotentialMatch) {
+    setSelectedMatch(match)
+    setShowMatches(false)
+
+    // Mark as viewed
+    fetch('/api/matches', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId: match.id, status: 'viewed' })
+    }).catch(err => console.error('[handleViewMatch] Error:', err))
+  }
+
+  // Handle rejecting a match
+  function handleRejectMatch(matchId: string) {
+    fetch('/api/matches', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId, status: 'rejected' })
+    })
+    .then(() => {
+      setMatches(prev => prev.filter(m => m.id !== matchId))
+      setSelectedMatch(null)
+    })
+    .catch(err => console.error('[handleRejectMatch] Error:', err))
+  }
+
+  // Handle contacting about a match
+  function handleContactMatch() {
+    setSelectedMatch(null)
+    // Scroll to comments or show message
+    alert('Use the comments section below to discuss this match with the other person.')
+  }
+
+  // Fetch claims for a pin (owner only)
+  async function fetchClaimsForSelectedPin(pinId: string) {
+    if (!pinId) return
+
+    try {
+      setClaimsLoading(true)
+      const response = await fetch(`/api/claims?pinId=${pinId}`)
+
+      if (!response.ok) {
+        console.error('[fetchClaimsForSelectedPin] API error')
+        return
+      }
+
+      const data = await response.json()
+      setClaims(data.claims || [])
+    } catch (err) {
+      console.error('[fetchClaimsForSelectedPin] Exception:', err)
+      setClaims([])
+    } finally {
+      setClaimsLoading(false)
+    }
+  }
+
+  // Handle successful claim submission
+  function handleClaimSuccess() {
+    setShowClaimDialog(false)
+    alert('Your claim has been submitted! The owner will review it soon.')
+  }
+
 
   function requireAuth(): boolean {
     if (session) return true;
@@ -1758,6 +1893,72 @@ export default function Home() {
                     <Share className="h-4 w-4" aria-hidden />
                     <span className="hidden sm:inline">Share</span>
                   </Button>
+
+                  {/* Matches button */}
+                  {matches.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowMatches(true)}
+                      className="h-9 gap-1.5 rounded-full px-3 text-xs font-semibold relative"
+                    >
+                      <TrendingUp className="h-4 w-4" aria-hidden />
+                      <span>{matches.length} Match{matches.length > 1 ? 'es' : ''}</span>
+                      {matches.some(m => m.confidence === 'high' && m.status === 'pending') && (
+                        <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-green-500 text-[10px] font-bold text-white">
+                          {matches.filter(m => m.confidence === 'high' && m.status === 'pending').length}
+                        </span>
+                      )}
+                    </Button>
+                  )}
+
+                  {matchesLoading && (
+                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span className="hidden sm:inline">Finding matches...</span>
+                    </div>
+                  )}
+
+                  {/* Claim button (for non-owners) */}
+                  {!canModifyPin(selectedPin) && selectedPin.status === 'open' && (
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      onClick={() => setShowClaimDialog(true)}
+                      className="h-9 gap-1.5 rounded-full px-4 text-xs font-semibold bg-green-600 hover:bg-green-700"
+                    >
+                      <Check className="h-4 w-4" aria-hidden />
+                      <span>Claim This Item</span>
+                    </Button>
+                  )}
+
+                  {/* View claims button (for owners) */}
+                  {canModifyPin(selectedPin) && claims.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowClaimReview(true)}
+                      className="h-9 gap-1.5 rounded-full px-3 text-xs font-semibold relative"
+                    >
+                      <User className="h-4 w-4" aria-hidden />
+                      <span>{claims.length} Claim{claims.length > 1 ? 's' : ''}</span>
+                      {claims.some(c => c.status === 'pending') && (
+                        <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-[10px] font-bold text-white">
+                          {claims.filter(c => c.status === 'pending').length}
+                        </span>
+                      )}
+                    </Button>
+                  )}
+
+                  {claimsLoading && (
+                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span className="hidden sm:inline">Loading claims...</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -3085,6 +3286,84 @@ export default function Home() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Matches Sheet */}
+      {showMatches && selectedPin && (
+        <Sheet open={showMatches} onOpenChange={setShowMatches}>
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[400px] p-0 overflow-hidden flex flex-col"
+          >
+            <MatchList
+              pinId={selectedPin.id}
+              onClose={() => setShowMatches(false)}
+              onMatchSelect={handleViewMatch}
+            />
+          </SheetContent>
+        </Sheet>
+      )}
+
+      {/* Match Comparison Dialog */}
+      {selectedMatch && selectedPin && (
+        <Dialog
+          open={!!selectedMatch}
+          onOpenChange={(open) => !open && setSelectedMatch(null)}
+        >
+          <DialogContent className="max-w-5xl max-h-[90vh] p-0 overflow-hidden">
+            <MatchComparison
+              match={selectedMatch}
+              currentPinId={selectedPin.id}
+              onBack={() => {
+                setSelectedMatch(null)
+                setShowMatches(true)
+              }}
+              onContact={handleContactMatch}
+              onReject={() => handleRejectMatch(selectedMatch.id)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Claim Dialog */}
+      {showClaimDialog && selectedPin && (
+        <ClaimDialog
+          open={showClaimDialog}
+          onOpenChange={setShowClaimDialog}
+          pinId={selectedPin.id}
+          pinTitle={selectedPin.title}
+          onSuccess={handleClaimSuccess}
+        />
+      )}
+
+      {/* Claim Review Sheet */}
+      {showClaimReview && selectedPin && (
+        <Sheet open={showClaimReview} onOpenChange={setShowClaimReview}>
+          <SheetContent
+            side="right"
+            className="w-full sm:w-[500px] p-0 overflow-hidden flex flex-col"
+          >
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                Claims for "{selectedPin.title}"
+              </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Review and manage claims for this item
+              </p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <ClaimReview
+                claims={claims}
+                pinTitle={selectedPin.title}
+                onUpdate={() => {
+                  if (selectedPin.id) {
+                    fetchClaimsForSelectedPin(selectedPin.id)
+                  }
+                }}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   );
 }
