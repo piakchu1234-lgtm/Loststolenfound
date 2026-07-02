@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MapPin as MapPinIcon } from "lucide-react";
 
@@ -185,13 +186,17 @@ export default async function PinPage({
 
       <div className="mx-auto max-w-3xl px-4">
         {pin.image_url && (
-          <div className="overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={pin.image_url}
-              alt={`Photo evidence for ${pin.title}`}
-              className="h-auto max-h-[640px] w-full object-cover"
-            />
+          <div className="relative overflow-hidden rounded-2xl bg-white shadow-md ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
+            <div className="relative h-auto max-h-[640px] w-full">
+              <Image
+                src={pin.image_url}
+                alt={`Photo evidence for ${pin.title}`}
+                width={1200}
+                height={800}
+                className="h-auto max-h-[640px] w-full object-cover"
+                priority
+              />
+            </div>
           </div>
         )}
 
