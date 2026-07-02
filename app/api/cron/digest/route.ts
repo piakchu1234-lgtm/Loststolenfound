@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { resend } from "@/lib/resend";
+import { resend, isResendConfigured } from "@/lib/resend";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -81,6 +81,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Check if Resend is configured
+  if (!isResendConfigured()) {
+    console.error("[digest] Resend API key not configured");
+    return NextResponse.json(
+      { error: "Email service not configured" },
+      { status: 503 },
+    );
+  }
+
   const sevenDaysAgo = new Date(
     Date.now() - 7 * 24 * 60 * 60 * 1000,
   ).toISOString();
@@ -140,6 +149,12 @@ export async function GET(request: Request) {
 
   for (const to of recipients) {
     try {
+      // Type guard: resend is checked above via isResendConfigured()
+      if (!resend) {
+        failed += 1;
+        continue;
+      }
+
       const result = await resend.emails.send({
         from: FROM_ADDRESS,
         to,

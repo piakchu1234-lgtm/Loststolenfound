@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import Map, { Marker, Source, Layer, type MapRef, type ViewState } from "react-map-gl/mapbox";
 import type mapboxgl from "mapbox-gl";
 import { useTheme } from "next-themes";
@@ -353,6 +354,7 @@ export default function Home() {
     longitude: viewState.longitude ?? INITIAL_VIEW.longitude,
   };
 
+  // Hydration fix: set mounted state after initial render
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -362,15 +364,26 @@ export default function Home() {
       ? "mapbox://styles/mapbox/dark-v11"
       : "mapbox://styles/mapbox/streets-v12";
 
-  const isAdmin = session?.user?.email === "yapshin1001@gmail.com";
+  // Admin check using environment variable instead of hardcoded email
+  const isAdmin = session?.user?.email &&
+    process.env.NEXT_PUBLIC_ADMIN_EMAIL &&
+    session.user.email === process.env.NEXT_PUBLIC_ADMIN_EMAIL;
   const canModifyPin = (pin: MapPin) =>
     session?.user?.id === pin.user_id || isAdmin;
 
   async function fetchAddress(lat: number, lng: number) {
     setAddressLoading(true);
+    const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    if (!mapboxToken) {
+      console.error("[fetchAddress] Mapbox token not configured");
+      setReadableAddress("Address lookup unavailable");
+      setAddressInput("");
+      setAddressLoading(false);
+      return;
+    }
     try {
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`,
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxToken}`,
       );
       if (!response.ok) {
         throw new Error("Geocoding request failed");
@@ -397,10 +410,16 @@ export default function Home() {
     const query = addressInput.trim();
     if (!query || forwardGeocoding) return;
 
+    const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    if (!mapboxToken) {
+      alert("Address search is unavailable. Mapbox token not configured.");
+      return;
+    }
+
     setForwardGeocoding(true);
     try {
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`,
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxToken}`,
       );
       if (!response.ok) {
         throw new Error("Forward geocoding request failed");
@@ -535,8 +554,10 @@ export default function Home() {
     setProfilesByUserId(map);
   }
 
+  // Fetch pins on mount
   useEffect(() => {
     fetchPins();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -770,6 +791,7 @@ export default function Home() {
     setLoadingSocial(false);
   }
 
+  // Reset drawer and fetch social data when selected pin changes
   useEffect(() => {
     setDrawerWide(false);
     if (!selectedPin) {
@@ -784,6 +806,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPin?.id, session?.user.id]);
 
+  // Fetch address when pin location changes in step 3
   useEffect(() => {
     if (pinned && step === 3) {
       fetchAddress(pinned.lat, pinned.lng);
@@ -1036,7 +1059,10 @@ export default function Home() {
 
       setSubmitStatus("uploading");
       const ext = fileToUpload.name.split(".").pop()?.toLowerCase() || "jpg";
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      // Generate unique filename outside of render phase
+      const timestamp = Date.now();
+      const randomStr = Math.random().toString(36).slice(2, 8);
+      const path = `${timestamp}-${randomStr}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from("incident-photos")
         .upload(path, fileToUpload, {
@@ -1461,16 +1487,29 @@ export default function Home() {
         })}
       </div>
 
-      <Map
-        ref={mapRef}
-        {...viewState}
-        onMove={(e) => setViewState(e.viewState)}
-        onLoad={() => setIsMapLoaded(true)}
-        onClick={handleMapClick}
-        mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
-        style={{ width: "100%", height: "100%", zIndex: 0 }}
-        mapStyle={mapStyle}
-      >
+      {!process.env.NEXT_PUBLIC_MAPBOX_TOKEN ? (
+        <div className="flex h-full w-full items-center justify-center bg-zinc-100 dark:bg-zinc-800">
+          <div className="max-w-md rounded-xl bg-white p-8 text-center shadow-lg dark:bg-zinc-900">
+            <MapIcon className="mx-auto h-16 w-16 text-zinc-400" aria-hidden />
+            <h2 className="mt-4 text-xl font-bold text-zinc-900 dark:text-zinc-50">
+              Map Unavailable
+            </h2>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              Mapbox token is not configured. Please add NEXT_PUBLIC_MAPBOX_TOKEN to your environment variables.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <Map
+          ref={mapRef}
+          {...viewState}
+          onMove={(e) => setViewState(e.viewState)}
+          onLoad={() => setIsMapLoaded(true)}
+          onClick={handleMapClick}
+          mapboxAccessToken={process.env.NEXT_PUBLIC_MAPBOX_TOKEN}
+          style={{ width: "100%", height: "100%", zIndex: 0 }}
+          mapStyle={mapStyle}
+        >
         <Source
           id="fuzz-radius-source"
           type="geojson"
@@ -1573,7 +1612,8 @@ export default function Home() {
             />
           </Marker>
         )}
-      </Map>
+        </Map>
+      )}
 
       {/* Pin Detail Drawer (progressive narrow/wide) — slides in when a pin is selected */}
       {selectedPin && drawerWide && (
@@ -1749,10 +1789,11 @@ export default function Home() {
 
                   <div className="mt-3 flex items-center gap-2.5">
                     {detailCreatorAvatar ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img
+                      <Image
                         src={detailCreatorAvatar}
-                        alt=""
+                        alt={`${detailCreatorName}'s avatar`}
+                        width={36}
+                        height={36}
                         className="h-9 w-9 shrink-0 rounded-full object-cover ring-2 ring-zinc-200 dark:ring-zinc-700"
                       />
                     ) : (
@@ -3105,12 +3146,13 @@ function PinImage({
           className="absolute inset-0 animate-pulse bg-zinc-200"
         />
       )}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+      <Image
         src={src}
         alt={alt}
+        fill
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
         onLoad={() => setImageLoaded(true)}
-        className={`h-full w-full object-cover transition-opacity duration-300 ${
+        className={`object-cover transition-opacity duration-300 ${
           imageLoaded ? "opacity-100" : "opacity-0"
         }`}
       />
