@@ -6,6 +6,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Analytics } from "@vercel/analytics/react";
+import { OneSignalProvider } from "@/components/onesignal-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -58,6 +59,7 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
+            <OneSignalProvider />
             {children}
           </ThemeProvider>
         </ErrorBoundary>
