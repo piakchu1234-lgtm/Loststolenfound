@@ -51,7 +51,8 @@
       "Bash(git commit -m 'Complete: Phase 1 - Final integration and summary document *)",
       "Bash(git commit -m 'Fix: Resolve React Script tag warning in GoogleAnalytics *)",
       "Bash(git commit -m 'Fix: Complete GoogleAnalytics component refactor *)",
-      "Bash(git commit -m 'Fix: Add environment variable validation and .env.example template *)"
+      "Bash(git commit -m 'Fix: Add environment variable validation and .env.example template *)",
+      "Bash(git commit -m 'Add: Complete environment variables setup guide *)"
     ]
   },
   "enableAllProjectMcpServers": true,
