@@ -52,7 +52,13 @@
       "Bash(git commit -m 'Fix: Resolve React Script tag warning in GoogleAnalytics *)",
       "Bash(git commit -m 'Fix: Complete GoogleAnalytics component refactor *)",
       "Bash(git commit -m 'Fix: Add environment variable validation and .env.example template *)",
-      "Bash(git commit -m 'Add: Complete environment variables setup guide *)"
+      "Bash(git commit -m 'Add: Complete environment variables setup guide *)",
+      "Bash(git commit -m 'Add: Immediate task execution checklist *)",
+      "Bash(npm list *)",
+      "Bash(git commit -m 'Add: Current session summary and task execution guide *)",
+      "Bash(git reset *)",
+      "Bash(git commit -m 'Add: Current session summary and update dependencies *)",
+      "Bash(git commit -m 'Add: Session summary and update Supabase packages *)"
     ]
   },
   "enableAllProjectMcpServers": true,
