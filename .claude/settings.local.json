@@ -43,7 +43,11 @@
       "Bash(git commit -m 'Complete: Direct messaging system \\(Day 1-3\\) *)",
       "Bash(git commit -m 'Complete: Error handling and monitoring system *)",
       "Bash(git commit -m 'Complete: Analytics and monitoring system - Phase 1 COMPLETE! 🎉 *)",
-      "Bash(npx shadcn@latest add avatar)"
+      "Bash(npx shadcn@latest add avatar)",
+      "Bash(git commit -m 'Fix: Complete Phase 1 integration and add missing components *)",
+      "Bash(npx shadcn@latest add scroll-area)",
+      "Bash(npx shadcn@latest add badge)",
+      "Bash(git commit -m 'Fix: Add all missing shadcn components for messaging system *)"
     ]
   },
   "enableAllProjectMcpServers": true,
