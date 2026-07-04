@@ -49,7 +49,9 @@
       "Bash(npx shadcn@latest add badge)",
       "Bash(git commit -m 'Fix: Add all missing shadcn components for messaging system *)",
       "Bash(git commit -m 'Complete: Phase 1 - Final integration and summary document *)",
-      "Bash(git commit -m 'Fix: Resolve React Script tag warning in GoogleAnalytics *)"
+      "Bash(git commit -m 'Fix: Resolve React Script tag warning in GoogleAnalytics *)",
+      "Bash(git commit -m 'Fix: Complete GoogleAnalytics component refactor *)",
+      "Bash(git commit -m 'Fix: Add environment variable validation and .env.example template *)"
     ]
   },
   "enableAllProjectMcpServers": true,
