@@ -48,7 +48,8 @@
       "Bash(npx shadcn@latest add scroll-area)",
       "Bash(npx shadcn@latest add badge)",
       "Bash(git commit -m 'Fix: Add all missing shadcn components for messaging system *)",
-      "Bash(git commit -m 'Complete: Phase 1 - Final integration and summary document *)"
+      "Bash(git commit -m 'Complete: Phase 1 - Final integration and summary document *)",
+      "Bash(git commit -m 'Fix: Resolve React Script tag warning in GoogleAnalytics *)"
     ]
   },
   "enableAllProjectMcpServers": true,
