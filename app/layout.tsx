@@ -7,6 +7,9 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Analytics } from "@vercel/analytics/react";
 import { OneSignalProvider } from "@/components/onesignal-provider";
+import { ToastProvider } from "@/components/toast-provider";
+import { GoogleAnalytics } from "@/components/google-analytics";
+import { PageViewTracker } from "@/components/page-view-tracker";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,6 +54,9 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        <GoogleAnalytics />
+      </head>
       <body className="min-h-full flex flex-col">
         <ErrorBoundary>
           <ThemeProvider
@@ -60,10 +66,12 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             <OneSignalProvider />
+            <PageViewTracker />
             {children}
           </ThemeProvider>
         </ErrorBoundary>
         <Analytics />
+        <ToastProvider />
         {process.env.NEXT_PUBLIC_GOOGLE_ADSENSE_ID && (
           <Script
             id="google-adsense"
