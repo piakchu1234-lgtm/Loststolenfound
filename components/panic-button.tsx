@@ -132,7 +132,7 @@ export function PanicButton({ userId, userLocation }: PanicButtonProps) {
       {/* Floating Panic Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-16 h-16 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 animate-pulse"
+        className="fixed bottom-6 left-6 z-50 w-16 h-16 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 animate-pulse"
         aria-label="Emergency Button"
       >
         <AlertOctagon className="h-8 w-8" />
