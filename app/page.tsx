@@ -2322,6 +2322,15 @@ export default function Home() {
         </Button>
       </div>
 
+      {/* Emergency Panic Button */}
+      <PanicButton
+        userId={session?.user?.id}
+        userLocation={{
+          lat: center.latitude,
+          lng: center.longitude
+        }}
+      />
+
       {/* Category filter bar — mobile only on the map view; desktop lives in the centered top strip */}
       {viewMode === "map" && (
         <div
