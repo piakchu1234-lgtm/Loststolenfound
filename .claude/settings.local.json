@@ -76,7 +76,8 @@
       "Bash(git commit -m 'Fix: Move panic button to left side to avoid clash with map recenter button *)",
       "WebFetch(domain:www.ozbargain.com.au)",
       "Bash(git commit -m 'Add: OzBargain RSS feed integration with community deals widget *)",
-      "Bash(git commit -m 'Add: Phase 2 - Contextual deal suggestions based on lost item category *)"
+      "Bash(git commit -m 'Add: Phase 2 - Contextual deal suggestions based on lost item category *)",
+      "Bash(git commit -m 'Add: Phase 3 - Rewards & Gamification System *)"
     ]
   },
   "enableAllProjectMcpServers": true,

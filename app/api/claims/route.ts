@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { awardPoints, POINT_VALUES } from '@/lib/rewards'
 
 /**
  * GET /api/claims
@@ -272,6 +273,28 @@ export async function PATCH(request: Request) {
       return NextResponse.json(
         { error: updateError.message },
         { status: 500 }
+      )
+    }
+
+    // Award points when item is returned (completed)
+    if (action === 'complete' && claim.finder_id) {
+      await awardPoints(
+        claim.finder_id,
+        POINT_VALUES.ITEM_RETURNED,
+        'ITEM_RETURNED',
+        claim.pin_id,
+        `Returned ${claim.pin_title || 'an item'}`
+      )
+    }
+
+    // Award points when claim is accepted (owner accepts claim)
+    if (action === 'approve' && claim.claimer_id) {
+      await awardPoints(
+        claim.claimer_id,
+        POINT_VALUES.CLAIM_ACCEPTED,
+        'CLAIM_ACCEPTED',
+        claim.pin_id,
+        `Claim accepted for ${claim.pin_title || 'an item'}`
       )
     }
 
