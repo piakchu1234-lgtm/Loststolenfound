@@ -61,7 +61,9 @@
       "Bash(git commit -m 'Add: Session summary and update Supabase packages *)",
       "Bash(git commit -m 'Add: Google AdSense integration guide *)",
       "Bash(git commit -m 'Add: Quick start guide with port 3001 instructions *)",
-      "Bash(git commit -m 'Add: Emergency Panic Button system \\(critical safety feature\\) *)"
+      "Bash(git commit -m 'Add: Emergency Panic Button system \\(critical safety feature\\) *)",
+      "Bash(npx tsc *)",
+      "Bash(git commit -m 'Fix: Resolve linting errors and type issues *)"
     ]
   },
   "enableAllProjectMcpServers": true,

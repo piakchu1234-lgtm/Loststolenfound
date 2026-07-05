@@ -227,7 +227,13 @@ export async function PATCH(request: Request) {
     }
 
     // Perform action
-    let updateData: any = {}
+    let updateData: {
+      status?: string
+      owner_response?: string | null
+      rejection_reason?: string | null
+      completed_at?: string
+      completed_by?: string
+    } = {}
 
     switch (action) {
       case 'approve':

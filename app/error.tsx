@@ -28,7 +28,7 @@ export default function Error({
         </h2>
 
         <p className="text-gray-600 dark:text-gray-400 mb-6">
-          We're sorry, but something unexpected happened.
+          We&apos;re sorry, but something unexpected happened.
           {error.digest && (
             <span className="block text-sm mt-2 text-gray-500">
               Error ID: {error.digest}

@@ -17,7 +17,7 @@ export async function GET() {
 
     // Simple query to test database connectivity
     const startTime = Date.now()
-    const { data, error } = await supabase.rpc('ping', {})
+    const { error } = await supabase.rpc('ping', {})
     const responseTime = Date.now() - startTime
 
     // If ping RPC doesn't exist, try a simple query
