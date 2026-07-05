@@ -70,6 +70,7 @@ import { ClaimReview } from "@/components/claim-review";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notification-bell";
 import { PanicButton } from "@/components/panic-button";
+import { OzBargainDeals } from "@/components/ozbargain-deals";
 import SidebarAdBanner from "@/components/SidebarAdBanner";
 import {
   Dialog,
@@ -2809,6 +2810,11 @@ export default function Home() {
                         })}
                     </ul>
                   )}
+                </div>
+
+                {/* OzBargain Community Deals */}
+                <div className="mt-4">
+                  <OzBargainDeals />
                 </div>
               </aside>
             </div>

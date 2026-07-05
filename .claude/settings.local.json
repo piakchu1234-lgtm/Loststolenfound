@@ -66,7 +66,16 @@
       "Bash(git commit -m 'Fix: Resolve linting errors and type issues *)",
       "Bash(git commit -m 'Add: Complete audit report and improvement summary *)",
       "Bash(git commit -m 'Add: Integrate PanicButton to main page *)",
-      "Bash(git commit -m 'Complete: Add PanicButton component to main page *)"
+      "Bash(git commit -m 'Complete: Add PanicButton component to main page *)",
+      "Bash(git commit -m 'Final: Complete audit, fixes, and PanicButton integration *)",
+      "Bash(git commit -m 'Add: Device preview page for responsive design testing *)",
+      "Bash(curl -s http://localhost:3001)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //PID 63656 //F)",
+      "Bash(curl -s http://localhost:3001/preview -o /dev/null -w \"%{http_code}\")",
+      "Bash(git commit -m 'Fix: Move panic button to left side to avoid clash with map recenter button *)",
+      "WebFetch(domain:www.ozbargain.com.au)",
+      "Bash(git commit -m 'Add: OzBargain RSS feed integration with community deals widget *)"
     ]
   },
   "enableAllProjectMcpServers": true,
