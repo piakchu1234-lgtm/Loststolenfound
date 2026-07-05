@@ -75,7 +75,8 @@
       "Bash(curl -s http://localhost:3001/preview -o /dev/null -w \"%{http_code}\")",
       "Bash(git commit -m 'Fix: Move panic button to left side to avoid clash with map recenter button *)",
       "WebFetch(domain:www.ozbargain.com.au)",
-      "Bash(git commit -m 'Add: OzBargain RSS feed integration with community deals widget *)"
+      "Bash(git commit -m 'Add: OzBargain RSS feed integration with community deals widget *)",
+      "Bash(git commit -m 'Add: Phase 2 - Contextual deal suggestions based on lost item category *)"
     ]
   },
   "enableAllProjectMcpServers": true,

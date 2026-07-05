@@ -71,6 +71,7 @@ import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notification-bell";
 import { PanicButton } from "@/components/panic-button";
 import { OzBargainDeals } from "@/components/ozbargain-deals";
+import { ContextualDeals } from "@/components/contextual-deals";
 import SidebarAdBanner from "@/components/SidebarAdBanner";
 import {
   Dialog,
@@ -2267,6 +2268,13 @@ export default function Home() {
                           {postingComment ? "Posting…" : "Post"}
                         </Button>
                       </form>
+
+              {/* Contextual Deals based on lost item category */}
+              {selectedPin && (
+                <div className="mt-4">
+                  <ContextualDeals category={selectedPin.category} />
+                </div>
+              )}
 
               {/* Ad Zone 2 — Pin Detail drawer bottom banner */}
                       <SidebarAdBanner />
