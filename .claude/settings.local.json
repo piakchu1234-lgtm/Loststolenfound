@@ -81,7 +81,8 @@
       "Bash(supabase db *)",
       "Bash(node scripts/apply-migration.js)",
       "Bash(start https://supabase.com/dashboard/project/nivcvueuohxofajchssk/sql/new)",
-      "Bash(git commit -m 'Fix: UI/UX improvements for better usability *)"
+      "Bash(git commit -m 'Fix: UI/UX improvements for better usability *)",
+      "Bash(git commit -m 'Fix: Improve error handling for matching system API *)"
     ]
   },
   "enableAllProjectMcpServers": true,

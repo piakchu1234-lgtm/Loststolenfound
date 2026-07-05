@@ -876,7 +876,12 @@ export default function Home() {
       const response = await fetch(`/api/matches?pinId=${pinId}`)
 
       if (!response.ok) {
-        console.error('[fetchMatchesForPin] API error')
+        const errorData = await response.json().catch(() => ({}))
+        console.error('[fetchMatchesForPin] API error:', response.status, errorData)
+
+        // If it's a 500 error, the matching system might not be set up yet
+        // Just silently fail and show no matches
+        setMatches([])
         return
       }
 

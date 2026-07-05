@@ -36,6 +36,13 @@ export async function GET(request: Request) {
 
       if (error) {
         console.error('[GET /api/matches] Error:', error)
+
+        // If table doesn't exist, return empty matches gracefully
+        if (error.code === '42P01' || error.message.includes('relation') || error.message.includes('does not exist')) {
+          console.warn('[GET /api/matches] potential_matches table not found - matching system not yet initialized')
+          return NextResponse.json({ matches: [], notice: 'Matching system not initialized' })
+        }
+
         return NextResponse.json({ error: error.message }, { status: 500 })
       }
 
