@@ -83,7 +83,8 @@
       "Bash(start https://supabase.com/dashboard/project/nivcvueuohxofajchssk/sql/new)",
       "Bash(git commit -m 'Fix: UI/UX improvements for better usability *)",
       "Bash(git commit -m 'Fix: Improve error handling for matching system API *)",
-      "Bash(start COMPLETE_MIGRATION_GUIDE.md)"
+      "Bash(start COMPLETE_MIGRATION_GUIDE.md)",
+      "Bash(git commit -m 'Add: Complete database migration guide *)"
     ]
   },
   "enableAllProjectMcpServers": true,
