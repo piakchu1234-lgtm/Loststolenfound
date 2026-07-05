@@ -77,7 +77,11 @@
       "WebFetch(domain:www.ozbargain.com.au)",
       "Bash(git commit -m 'Add: OzBargain RSS feed integration with community deals widget *)",
       "Bash(git commit -m 'Add: Phase 2 - Contextual deal suggestions based on lost item category *)",
-      "Bash(git commit -m 'Add: Phase 3 - Rewards & Gamification System *)"
+      "Bash(git commit -m 'Add: Phase 3 - Rewards & Gamification System *)",
+      "Bash(supabase db *)",
+      "Bash(node scripts/apply-migration.js)",
+      "Bash(start https://supabase.com/dashboard/project/nivcvueuohxofajchssk/sql/new)",
+      "Bash(git commit -m 'Fix: UI/UX improvements for better usability *)"
     ]
   },
   "enableAllProjectMcpServers": true,

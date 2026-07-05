@@ -1967,7 +1967,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-y-auto pb-6">
                 <div className="border-b border-zinc-200 px-4 py-4 dark:border-zinc-700">
                   <div className="flex items-center gap-3">
                     <span
@@ -2273,13 +2273,15 @@ export default function Home() {
 
               {/* Contextual Deals based on lost item category */}
               {selectedPin && (
-                <div className="mt-4">
+                <div className="mt-4 px-4">
                   <ContextualDeals category={selectedPin.category} />
                 </div>
               )}
 
               {/* Ad Zone 2 — Pin Detail drawer bottom banner */}
-                      <SidebarAdBanner />
+              <div className="mt-4 px-4 pb-4">
+                <SidebarAdBanner />
+              </div>
                     </>
                   )}
                 </div>
