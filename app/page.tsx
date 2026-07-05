@@ -69,6 +69,7 @@ import { ClaimDialog } from "@/components/claim-dialog";
 import { ClaimReview } from "@/components/claim-review";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notification-bell";
+import { PanicButton } from "@/components/panic-button";
 import SidebarAdBanner from "@/components/SidebarAdBanner";
 import {
   Dialog,
