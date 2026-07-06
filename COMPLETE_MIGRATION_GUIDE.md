@@ -4,11 +4,12 @@ This guide will help you apply all pending migrations to enable full functionali
 
 ## 🎯 Migrations to Apply
 
-You have **3 optional migrations** that add advanced features:
+You have **4 optional migrations** that add advanced features:
 
 1. **Messaging System** - User-to-user messaging
 2. **Matching System** - Smart item matching (fixes the error)
 3. **Rewards System** - Points, badges, and leaderboard
+4. **Forum System** - Complete discussion forum (NEW!)
 
 ## 📋 Option 1: Apply All at Once (Recommended)
 

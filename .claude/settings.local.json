@@ -85,7 +85,8 @@
       "Bash(git commit -m 'Fix: Improve error handling for matching system API *)",
       "Bash(start COMPLETE_MIGRATION_GUIDE.md)",
       "Bash(git commit -m 'Add: Complete database migration guide *)",
-      "Bash(git commit -m 'Add: Complete Forum & Discussion System *)"
+      "Bash(git commit -m 'Add: Complete Forum & Discussion System *)",
+      "Bash(git commit -m 'Add: Complete forum system documentation *)"
     ]
   },
   "enableAllProjectMcpServers": true,
