@@ -49,6 +49,7 @@ import {
   Phone,
   ShieldOff,
   TrendingUp,
+  MessageCircle,
 } from "lucide-react";
 
 import type { Session } from "@supabase/supabase-js";
@@ -1538,6 +1539,13 @@ export default function Home() {
           <List className="h-4 w-4" aria-hidden />
           Feed
         </button>
+        <Link
+          href="/forum"
+          className="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 bg-transparent text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-700"
+        >
+          <MessageCircle className="h-4 w-4" aria-hidden />
+          Forum
+        </Link>
       </div>
 
       {/* Centered desktop top filter pill — Map view only. Drops to row 2 below the top cluster on md/lg; joins row 1 at xl where there's room. */}

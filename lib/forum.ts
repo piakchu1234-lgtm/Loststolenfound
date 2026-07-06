@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { awardPoints, POINT_VALUES } from './rewards';
 
 // ============================================
 // TYPES
@@ -282,6 +283,16 @@ export async function createForumThread(
       .single();
 
     if (error) throw error;
+
+    // Award points for creating a thread
+    await awardPoints(
+      user.id,
+      POINT_VALUES.FORUM_THREAD,
+      'FORUM_THREAD',
+      data.id,
+      `Created thread: ${title.substring(0, 50)}`
+    );
+
     return { success: true, thread: data };
   } catch (error) {
     console.error('Error creating forum thread:', error);
@@ -376,6 +387,16 @@ export async function createForumReply(
       .single();
 
     if (error) throw error;
+
+    // Award points for posting a reply
+    await awardPoints(
+      user.id,
+      POINT_VALUES.FORUM_REPLY,
+      'FORUM_REPLY',
+      data.id,
+      'Posted a forum reply'
+    );
+
     return { success: true, reply: data };
   } catch (error) {
     console.error('Error creating forum reply:', error);
@@ -388,12 +409,33 @@ export async function createForumReply(
  */
 export async function markAsSolution(replyId: string): Promise<{ success: boolean; error?: string }> {
   try {
+    // Get the reply to find the author
+    const { data: reply, error: fetchError } = await supabase
+      .from('forum_replies')
+      .select('author_id')
+      .eq('id', replyId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
     const { error } = await supabase
       .from('forum_replies')
       .update({ is_solution: true })
       .eq('id', replyId);
 
     if (error) throw error;
+
+    // Award bonus points to the author for having their solution marked
+    if (reply) {
+      await awardPoints(
+        reply.author_id,
+        POINT_VALUES.SOLUTION_MARKED,
+        'SOLUTION_MARKED',
+        replyId,
+        'Reply marked as solution'
+      );
+    }
+
     return { success: true };
   } catch (error) {
     console.error('Error marking reply as solution:', error);

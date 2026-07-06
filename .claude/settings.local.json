@@ -86,7 +86,9 @@
       "Bash(start COMPLETE_MIGRATION_GUIDE.md)",
       "Bash(git commit -m 'Add: Complete database migration guide *)",
       "Bash(git commit -m 'Add: Complete Forum & Discussion System *)",
-      "Bash(git commit -m 'Add: Complete forum system documentation *)"
+      "Bash(git commit -m 'Add: Complete forum system documentation *)",
+      "Bash(start FORUM_SYSTEM_SUMMARY.md)",
+      "Bash(kill 752)"
     ]
   },
   "enableAllProjectMcpServers": true,

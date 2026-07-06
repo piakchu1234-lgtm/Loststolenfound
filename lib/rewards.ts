@@ -7,6 +7,10 @@ export const POINT_VALUES = {
   CLAIM_ACCEPTED: 30,       // Had your claim accepted
   VERIFIED_REPORT: 10,      // Made a verified report
   HELPFUL_COMMENT: 5,       // Posted a helpful comment
+  FORUM_THREAD: 10,         // Created a forum thread
+  FORUM_REPLY: 5,           // Posted a forum reply
+  FORUM_UPVOTE_RECEIVED: 2, // Received an upvote on forum content
+  SOLUTION_MARKED: 25,      // Your reply was marked as solution
 } as const;
 
 // Badge definitions
