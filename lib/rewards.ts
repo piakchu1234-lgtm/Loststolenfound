@@ -15,41 +15,94 @@ export const POINT_VALUES = {
 
 // Badge definitions
 export const BADGES = {
+  // Lost & Found Badges
   FIRST_RETURN: {
     type: 'first_return',
     name: 'First Return',
     description: 'Returned your first lost item',
     icon: '🎯',
+    category: 'lost-found',
   },
   HELPER_HERO: {
     type: 'helper_hero',
     name: 'Helper Hero',
     description: 'Returned 5 lost items',
     icon: '🦸',
+    category: 'lost-found',
   },
   COMMUNITY_CHAMPION: {
     type: 'community_champion',
     name: 'Community Champion',
     description: 'Returned 10 lost items',
     icon: '👑',
+    category: 'lost-found',
   },
+
+  // Points Badges
   CENTURY_CLUB: {
     type: 'century_club',
     name: 'Century Club',
     description: 'Earned 100 points',
     icon: '💯',
+    category: 'points',
   },
   POINT_MASTER: {
     type: 'point_master',
     name: 'Point Master',
     description: 'Earned 500 points',
     icon: '⭐',
+    category: 'points',
   },
   LEGEND: {
     type: 'legend',
     name: 'Legend',
     description: 'Earned 1000 points',
     icon: '🏆',
+    category: 'points',
+  },
+
+  // Forum Badges
+  FIRST_THREAD: {
+    type: 'first_thread',
+    name: 'First Thread',
+    description: 'Created your first forum thread',
+    icon: '🎯',
+    category: 'forum',
+  },
+  CONVERSATIONALIST: {
+    type: 'conversationalist',
+    name: 'Conversationalist',
+    description: 'Started 10 forum discussions',
+    icon: '🗣️',
+    category: 'forum',
+  },
+  REPLY_MASTER: {
+    type: 'reply_master',
+    name: 'Reply Master',
+    description: 'Posted 50 helpful replies',
+    icon: '💬',
+    category: 'forum',
+  },
+  PROBLEM_SOLVER: {
+    type: 'problem_solver',
+    name: 'Problem Solver',
+    description: 'Had 5 replies marked as solutions',
+    icon: '✅',
+    category: 'forum',
+  },
+  QUALITY_CONTRIBUTOR: {
+    type: 'quality_contributor',
+    name: 'Quality Contributor',
+    description: 'Received 100+ upvotes on forum content',
+    icon: '💎',
+    category: 'forum',
+  },
+  POPULAR_POST: {
+    type: 'popular_post',
+    name: 'Popular Post',
+    description: 'Created a thread with 20+ upvotes',
+    icon: '⭐',
+    category: 'forum',
   },
 } as const;
 

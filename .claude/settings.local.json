@@ -88,7 +88,9 @@
       "Bash(git commit -m 'Add: Complete Forum & Discussion System *)",
       "Bash(git commit -m 'Add: Complete forum system documentation *)",
       "Bash(start FORUM_SYSTEM_SUMMARY.md)",
-      "Bash(kill 752)"
+      "Bash(kill 752)",
+      "Bash(git commit -m 'Add: Forum navigation and rewards integration *)",
+      "Bash(git commit -m 'Add: Complete upgrade summary documentation *)"
     ]
   },
   "enableAllProjectMcpServers": true,

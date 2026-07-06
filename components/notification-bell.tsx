@@ -2,9 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Loader2 } from "lucide-react";
+import { Bell, Loader2, X } from "lucide-react";
 
 import { supabase } from "@/lib/supabase";
+import {
+  getInAppNotifications,
+  getUnreadNotificationCount,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  subscribeToNotifications,
+  getNotificationIcon,
+  getNotificationColor,
+  type InAppNotification,
+} from "@/lib/notifications";
 
 interface NotificationRow {
   id: string;
@@ -34,56 +44,39 @@ function formatRelativeTime(iso: string): string {
 export function NotificationBell({ userId }: { userId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<NotificationRow[] | null>(null);
+  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [loading, setLoading] = useState(false);
   const [unread, setUnread] = useState(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   async function refresh() {
-    const recentRes = await supabase
-      .from("Notification")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(5);
-    if (recentRes.error) {
-      console.error("[bell:fetchRecent]", recentRes.error);
-      setItems([]);
-    } else {
-      setItems((recentRes.data ?? []) as NotificationRow[]);
-    }
-    const countRes = await supabase
-      .from("Notification")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("is_read", false);
-    if (countRes.error) {
-      console.error("[bell:fetchUnread]", countRes.error);
-    } else {
-      setUnread(countRes.count ?? 0);
+    setLoading(true);
+    try {
+      const [notifs, count] = await Promise.all([
+        getInAppNotifications(10),
+        getUnreadNotificationCount(),
+      ]);
+      setNotifications(notifs);
+      setUnread(count);
+    } catch (error) {
+      console.error("[bell:refresh]", error);
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
     refresh();
-    const channel = supabase
-      .channel(`notif:${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "Notification",
-          filter: `user_id=eq.${userId}`,
-        },
-        () => {
-          refresh();
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    // Subscribe to real-time notifications
+    const unsubscribe = subscribeToNotifications(userId, (newNotif) => {
+      setNotifications((prev) => [newNotif, ...prev].slice(0, 10));
+      if (!newNotif.is_read) {
+        setUnread((u) => u + 1);
+      }
+    });
+
+    return unsubscribe;
   }, [userId]);
 
   useEffect(() => {
@@ -103,22 +96,28 @@ export function NotificationBell({ userId }: { userId: string }) {
     };
   }, [open]);
 
-  async function handleSelect(n: NotificationRow) {
+  async function handleSelect(notif: InAppNotification) {
     setOpen(false);
-    if (!n.is_read) {
-      setItems((prev) =>
-        prev
-          ? prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x))
-          : prev,
+
+    // Mark as read
+    if (!notif.is_read) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notif.id ? { ...n, is_read: true } : n))
       );
       setUnread((u) => Math.max(0, u - 1));
-      const { error } = await supabase
-        .from("Notification")
-        .update({ is_read: true })
-        .eq("id", n.id);
-      if (error) console.error("[bell:markRead]", error);
+      await markNotificationAsRead(notif.id);
     }
-    router.push(`/p/${n.pin_id}`);
+
+    // Navigate if there's a link
+    if (notif.link) {
+      router.push(notif.link);
+    }
+  }
+
+  async function handleMarkAllRead() {
+    await markAllNotificationsAsRead();
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setUnread(0);
   }
 
   return (
@@ -157,71 +156,98 @@ export function NotificationBell({ userId }: { userId: string }) {
         <div
           role="menu"
           aria-label="Recent notifications"
-          className="absolute right-0 top-full z-[60] mt-2 w-80 overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800"
+          className="absolute right-0 top-full z-[60] mt-2 w-96 overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800"
         >
           <div className="flex items-center justify-between border-b px-4 py-3 dark:border-zinc-800">
             <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               Notifications
             </p>
-            {unread > 0 && (
-              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
-                {unread} new
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {unread > 0 && (
+                <>
+                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                    {unread} new
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleMarkAllRead}
+                    className="text-xs text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+                  >
+                    Mark all read
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          {items === null ? (
+          {loading ? (
             <div className="flex items-center justify-center px-4 py-8">
               <Loader2
                 className="h-5 w-5 animate-spin text-zinc-400"
                 aria-hidden
               />
             </div>
-          ) : items.length === 0 ? (
+          ) : notifications.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-zinc-500">
-              No new notifications
+              No notifications yet
             </p>
           ) : (
             <ul className="max-h-96 overflow-y-auto">
-              {items.map((n) => (
-                <li
-                  key={n.id}
-                  className={
-                    n.is_read
-                      ? "border-b last:border-b-0 dark:border-zinc-800"
-                      : "border-b bg-rose-50/40 last:border-b-0 dark:border-zinc-800 dark:bg-rose-500/5"
-                  }
-                >
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handleSelect(n)}
-                    className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-50 focus-visible:bg-zinc-50 focus-visible:outline-none dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800"
+              {notifications.map((notif) => {
+                const icon = getNotificationIcon(notif.type);
+                const colorClass = getNotificationColor(notif.type);
+
+                return (
+                  <li
+                    key={notif.id}
+                    className={
+                      notif.is_read
+                        ? "border-b last:border-b-0 dark:border-zinc-800"
+                        : "border-b bg-blue-50/40 last:border-b-0 dark:border-zinc-800 dark:bg-blue-500/5"
+                    }
                   >
-                    <span
-                      className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                        n.is_read ? "bg-transparent" : "bg-rose-500"
-                      }`}
-                      aria-hidden
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className={`text-sm leading-snug ${
-                          n.is_read
-                            ? "text-zinc-600 dark:text-zinc-400"
-                            : "font-semibold text-zinc-900 dark:text-zinc-100"
-                        }`}
-                      >
-                        {n.message}
-                      </p>
-                      <p className="mt-0.5 text-xs text-zinc-500">
-                        <time dateTime={n.created_at}>
-                          {formatRelativeTime(n.created_at)}
-                        </time>
-                      </p>
-                    </div>
-                  </button>
-                </li>
-              ))}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => handleSelect(notif)}
+                      className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-50 focus-visible:bg-zinc-50 focus-visible:outline-none dark:hover:bg-zinc-800 dark:focus-visible:bg-zinc-800"
+                    >
+                      {/* Icon */}
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${colorClass}`}>
+                        <span className="text-sm">{icon}</span>
+                      </div>
+
+                      {/* Content */}
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`text-sm font-semibold leading-snug ${
+                            notif.is_read
+                              ? "text-zinc-700 dark:text-zinc-300"
+                              : "text-zinc-900 dark:text-zinc-100"
+                          }`}
+                        >
+                          {notif.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                          {notif.message}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          <time dateTime={notif.created_at}>
+                            {formatRelativeTime(notif.created_at)}
+                          </time>
+                        </p>
+                      </div>
+
+                      {/* Unread indicator */}
+                      {!notif.is_read && (
+                        <span
+                          className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-blue-500"
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
