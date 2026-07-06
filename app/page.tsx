@@ -76,6 +76,7 @@ import { ContextualDeals } from "@/components/contextual-deals";
 import { RewardsDashboard } from "@/components/rewards-dashboard";
 import { Leaderboard } from "@/components/leaderboard";
 import SidebarAdBanner from "@/components/SidebarAdBanner";
+import { GlobalSearchBar } from "@/components/global-search-bar";
 import {
   Dialog,
   DialogContent,
@@ -1592,6 +1593,12 @@ export default function Home() {
         </div>
       )}
 
+      {/* Global Search Bar */}
+      <div className="fixed top-6 right-20 z-[50] hidden md:block w-80">
+        <GlobalSearchBar placeholder="Search pins, forum, users..." />
+      </div>
+
+      {/* Mobile search - local incidents only */}
       <div
         role="search"
         className="fixed top-20 right-4 z-[50] md:hidden w-[calc(100vw-32px)] max-w-xs"

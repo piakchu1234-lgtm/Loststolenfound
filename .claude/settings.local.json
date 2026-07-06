@@ -90,7 +90,9 @@
       "Bash(start FORUM_SYSTEM_SUMMARY.md)",
       "Bash(kill 752)",
       "Bash(git commit -m 'Add: Forum navigation and rewards integration *)",
-      "Bash(git commit -m 'Add: Complete upgrade summary documentation *)"
+      "Bash(git commit -m 'Add: Complete upgrade summary documentation *)",
+      "Bash(git commit -m 'Add: Complete engagement package \\(Option C\\) *)",
+      "Bash(git commit -m 'Add: Complete engagement package documentation *)"
     ]
   },
   "enableAllProjectMcpServers": true,
