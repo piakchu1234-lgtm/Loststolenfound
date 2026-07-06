@@ -92,7 +92,8 @@
       "Bash(git commit -m 'Add: Forum navigation and rewards integration *)",
       "Bash(git commit -m 'Add: Complete upgrade summary documentation *)",
       "Bash(git commit -m 'Add: Complete engagement package \\(Option C\\) *)",
-      "Bash(git commit -m 'Add: Complete engagement package documentation *)"
+      "Bash(git commit -m 'Add: Complete engagement package documentation *)",
+      "Bash(git commit -m 'Add: Advanced search system with full-text search *)"
     ]
   },
   "enableAllProjectMcpServers": true,
